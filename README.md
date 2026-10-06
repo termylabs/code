@@ -1,6 +1,10 @@
 # Termy Code
 
-A desktop client for coding agents that speak the [Agent Client Protocol](https://agentclientprotocol.com) (ACP). It runs Claude Code, Codex and Cursor in one native app, with a terminal built on [Termy](https://github.com/lassejlv/termy)'s PTY.
+Termy Code is a native desktop app for working with AI coding agents. Instead of running Claude Code, Codex and Cursor each in its own terminal tab, you open a project once and talk to any of them from the same window. Each conversation is saved as a thread you can search and return to later.
+
+When an agent edits files, the changes show up as diffs you can review before moving on. When it runs commands, they run in a real terminal built on [Termy](https://github.com/lassejlv/termy)'s PTY, and you can see the output as it happens. A terminal panel is also there for your own commands.
+
+Termy Code talks to the agents over the [Agent Client Protocol](https://agentclientprotocol.com) (ACP), the open protocol these CLIs use to work with editors. The agents keep their own models, tools and logins. Termy Code gives them a better interface.
 
 ## Features
 
