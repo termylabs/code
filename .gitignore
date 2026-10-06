@@ -7,3 +7,4 @@ src-tauri/gen/schemas
 .env*
 *.pem
 *.key
+.vscode
