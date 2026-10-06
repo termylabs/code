@@ -14,6 +14,7 @@ import {
   SubscriptionRef,
 } from "effect"
 import { type AgentId, agents } from "@/domain/agents"
+import type { Mention, Skill } from "@/domain/mentions"
 import {
   AskQuestion,
   CreatePlan,
@@ -28,12 +29,16 @@ import {
 import {
   applyUpdate,
   type ImageAttachment,
+  isHistory,
   makeSession,
   type PendingRequest,
+  pendingFork,
   type Session,
   settleTools,
   type TimelineItem,
+  timeTurn,
   titleFrom,
+  transcript,
   untitled,
 } from "@/domain/session"
 import { type AcpConnection, AcpClient, AcpError, type Prompt } from "./AcpClient"
@@ -59,7 +64,20 @@ export interface WorkspaceState {
   readonly sessions: Readonly<Record<string, Session>>
   /** Agent terminals, keyed by terminal id. */
   readonly terminals: Readonly<Record<string, TerminalOutput>>
+  /** Open tabs, in order. */
+  readonly tabs: ReadonlyArray<Tab>
 }
+
+/** A tab is a thread, or a full-size shell in a folder. */
+export const Tab = Schema.Union([
+  Schema.TaggedStruct("Thread", { id: Schema.String }),
+  Schema.TaggedStruct("Terminal", { id: Schema.String, cwd: Schema.String, title: Schema.String }),
+])
+export type Tab = typeof Tab.Type
+
+const decodeTabs = Schema.decodeUnknownOption(Schema.Array(Tab))
+
+const TABS_KEY = "termy.tabs.v2"
 
 export interface QuestionAnswer {
   readonly questionId: string
@@ -126,7 +144,12 @@ export class Workspace extends Context.Service<
     discard(id: string): Effect.Effect<void>
     /** Loads a saved thread into the window and reconnects its agent. */
     open(id: string): Effect.Effect<void, WorkspaceError>
-    send(id: string, text: string, images?: ReadonlyArray<ImageAttachment>): Effect.Effect<void, WorkspaceError>
+    send(
+      id: string,
+      text: string,
+      images?: ReadonlyArray<ImageAttachment>,
+      mentions?: ReadonlyArray<Mention>,
+    ): Effect.Effect<void, WorkspaceError>
     cancel(id: string): Effect.Effect<void>
     retry(id: string): Effect.Effect<void>
     setConfigOption(id: string, configId: string, value: string): Effect.Effect<void, WorkspaceError>
@@ -139,7 +162,20 @@ export class Workspace extends Context.Service<
     /** Reads image files for a prompt; with no paths, asks the user to pick them. */
     loadImages(paths?: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<ImageAttachment>, WorkspaceError>
     deleteThread(id: string): Effect.Effect<void, WorkspaceError>
+    /** Copies a thread (up to `upTo`, an item id) into a new one for `agentId`. Returns the new thread's id. */
+    fork(id: string, agentId: AgentId, upTo?: string): Effect.Effect<string, WorkspaceError>
+    /** Removes a tab. An idle thread also lets go of its agent; a working one keeps going. */
+    closeTab(id: string): Effect.Effect<void>
+    /** Opens a shell in `cwd` as a tab. Returns the tab's id. */
+    openTerminal(cwd: string, title: string): Effect.Effect<string>
+    /** Follows the shell's own title, e.g. the running command. */
+    setTerminalTitle(id: string, title: string): Effect.Effect<void>
+    readFile(path: string): Effect.Effect<string, WorkspaceError>
     gitBranch(cwd: string): Effect.Effect<string | null>
+    /** Project files relative to `cwd`, for `@` mentions. */
+    listFiles(cwd: string): Effect.Effect<ReadonlyArray<string>, WorkspaceError>
+    /** Skills the agent can use in `cwd`, for `$` mentions. */
+    listSkills(agentId: AgentId, cwd: string): Effect.Effect<ReadonlyArray<Skill>, WorkspaceError>
   }
 >()("termy/services/Workspace") {
   static readonly layer = Layer.effect(
@@ -155,6 +191,7 @@ export class Workspace extends Context.Service<
         threads: [],
         sessions: {},
         terminals: {},
+        tabs: [],
       })
       const live = new Map<string, Live>()
 
@@ -309,8 +346,9 @@ export class Workspace extends Context.Service<
         })
 
       const handlers = (id: string) => ({
+        // A replay rebuilds history we already have; session-level updates (commands, modes) still apply.
         onUpdate: (notification: acp.SessionNotification) =>
-          live.get(id)?.replaying
+          live.get(id)?.replaying && isHistory(notification.update)
             ? Effect.void
             : updateSession(id, (session) => applyUpdate(session, notification.update)),
         onPermission: (request: acp.RequestPermissionRequest) =>
@@ -331,9 +369,10 @@ export class Workspace extends Context.Service<
           const process = yield* host.spawn(spec, session.cwd)
           const connection = yield* acpClient.connect(process, handlers(id))
 
-          let resumed: acp.ResumeSessionResponse | acp.NewSessionResponse
+          let resumed: acp.ResumeSessionResponse | acp.NewSessionResponse | acp.ForkSessionResponse
           let acpSessionId = session.acpSessionId
           let notice: string | null = null
+          const fork = acpSessionId ? null : pendingFork(session.items)
 
           if (acpSessionId && connection.canResume) {
             resumed = yield* connection.resumeSession(acpSessionId, session.cwd)
@@ -342,7 +381,20 @@ export class Workspace extends Context.Service<
             resumed = yield* connection
               .loadSession(acpSessionId, session.cwd)
               .pipe(Effect.ensuring(Effect.sync(() => (handle.replaying = false))))
+          } else if (fork?.handoff === "native" && fork.fromAcpSessionId && connection.canFork) {
+            const forked = yield* connection.forkSession(fork.fromAcpSessionId, session.cwd)
+            acpSessionId = forked.sessionId
+            resumed = forked
           } else {
+            // A fork the agent can't do natively falls back to a transcript.
+            if (fork?.handoff === "native") {
+              yield* updateSession(id, (current) => ({
+                ...current,
+                items: current.items.map((item) =>
+                  item.id === fork.id && item._tag === "Fork" ? { ...item, handoff: "transcript" as const } : item,
+                ),
+              }))
+            }
             const created = yield* connection.newSession(session.cwd)
             if (acpSessionId) {
               notice = `${spec.name} started a fresh session. It can see this project but not the earlier messages.`
@@ -468,6 +520,9 @@ export class Workspace extends Context.Service<
           yield* update((current) => ({
             ...current,
             projects: current.projects.filter((project) => project.id !== id),
+            tabs: current.tabs.filter(
+              (tab) => tab._tag !== "Thread" || current.threads.find((thread) => thread.id === tab.id)?.projectId !== id,
+            ),
             threads: current.threads.filter((thread) => thread.projectId !== id),
             sessions: Object.fromEntries(
               Object.entries(current.sessions).filter(([, session]) => session.projectId !== id),
@@ -522,12 +577,13 @@ export class Workspace extends Context.Service<
             }
             yield* update((s) => ({ ...s, sessions: { ...s.sessions, [id]: session } }))
           }
+          yield* setTabs((tabs) => (tabs.some((tab) => tab.id === id) ? tabs : [...tabs, { _tag: "Thread", id }]))
           if (!live.has(id)) yield* ensureConnected(id).pipe(Effect.ignore, Effect.forkDetach)
         },
         Effect.mapError(toWorkspaceError),
       )
 
-      const runTurn = (id: string, connection: AcpConnection, acpSessionId: string, prompt: Prompt) =>
+      const runTurn = (id: string, connection: AcpConnection, acpSessionId: string, prompt: Prompt, startedAt: number) =>
         connection.prompt(acpSessionId, prompt).pipe(
           Effect.matchEffect({
             onSuccess: (response) =>
@@ -555,6 +611,10 @@ export class Workspace extends Context.Service<
                 ],
               })),
           }),
+          Effect.andThen(Clock.currentTimeMillis),
+          Effect.flatMap((now) =>
+            updateSession(id, (session) => ({ ...session, items: timeTurn(session.items, now - startedAt) })),
+          ),
           Effect.andThen(persist(id)),
         )
 
@@ -562,6 +622,7 @@ export class Workspace extends Context.Service<
         id: string,
         text: string,
         images: ReadonlyArray<ImageAttachment> = [],
+        mentions: ReadonlyArray<Mention> = [],
       ) {
         const trimmed = text.trim()
         if (!trimmed && images.length === 0) return
@@ -573,7 +634,13 @@ export class Workspace extends Context.Service<
           turnStartedAt: now,
           items: [
             ...session.items,
-            { _tag: "User", id: crypto.randomUUID(), text: trimmed, ...(images.length > 0 ? { images } : {}) },
+            {
+              _tag: "User",
+              id: crypto.randomUUID(),
+              text: trimmed,
+              ...(images.length > 0 ? { images } : {}),
+              ...(mentions.length > 0 ? { mentions } : {}),
+            },
           ],
         }))
         yield* persist(id)
@@ -591,7 +658,15 @@ export class Workspace extends Context.Service<
         if (images.length > 0 && !session.supportsImages) {
           return yield* new WorkspaceError({ message: `${agents[session.agentId].name} doesn't accept images.` })
         }
-        yield* Effect.forkIn(runTurn(id, connection, session.acpSessionId, { text: trimmed, images }), handle.scope)
+        // The first prompt after a handoff carries the conversation it came from.
+        const items = session.items.slice(0, -1)
+        const fork = pendingFork(items)
+        const context =
+          fork?.handoff === "transcript" ? transcript(items, fork, agents[fork.fromAgentId].name) : undefined
+        yield* Effect.forkIn(
+          runTurn(id, connection, session.acpSessionId, { text: trimmed, images, mentions, context }, now),
+          handle.scope,
+        )
       })
 
       const cancel = Effect.fn("Workspace.cancel")(function* (id: string) {
@@ -676,10 +751,74 @@ export class Workspace extends Context.Service<
           yield* update((current) => ({
             ...current,
             threads: current.threads.filter((thread) => thread.id !== id),
+            tabs: current.tabs.filter((tab) => tab.id !== id),
           }))
         },
         Effect.mapError(toWorkspaceError),
       )
+
+      const fork = Effect.fn("Workspace.fork")(function* (id: string, agentId: AgentId, upTo?: string) {
+        const source = yield* getSession(id)
+        const cut = upTo ? source.items.findIndex((item) => item.id === upTo) : -1
+        const whole = cut < 0 || cut === source.items.length - 1
+        const items = settleTools(whole ? source.items : source.items.slice(0, cut + 1))
+        const now = yield* Clock.currentTimeMillis
+        const forkId = crypto.randomUUID()
+        const session: Session = {
+          ...makeSession({ id: forkId, projectId: source.projectId, cwd: source.cwd, agentId, now }),
+          title: source.title,
+          status: "starting",
+          items: [
+            ...items,
+            {
+              _tag: "Fork",
+              id: crypto.randomUUID(),
+              fromTitle: source.title,
+              fromAgentId: source.agentId,
+              fromAcpSessionId: source.acpSessionId,
+              // The agent's own fork copies the whole session, so a partial fork needs the transcript.
+              handoff: agentId === source.agentId && source.acpSessionId && whole ? "native" : "transcript",
+            },
+          ],
+        }
+        yield* update((current) => ({ ...current, sessions: { ...current.sessions, [forkId]: session } }))
+        yield* persist(forkId)
+        yield* ensureConnected(forkId).pipe(Effect.ignore, Effect.forkDetach)
+        return forkId
+      })
+
+      const writeTabs = (tabs: ReadonlyArray<Tab>) =>
+        Effect.sync(() => {
+          try {
+            localStorage.setItem(TABS_KEY, JSON.stringify(tabs))
+          } catch {
+            // Tabs just won't come back after a restart.
+          }
+        })
+
+      const setTabs = (f: (tabs: ReadonlyArray<Tab>) => ReadonlyArray<Tab>) =>
+        SubscriptionRef.modify(state, (current) => {
+          const tabs = f(current.tabs)
+          return [tabs, { ...current, tabs }] as const
+        }).pipe(Effect.flatMap(writeTabs))
+
+      const closeTab = Effect.fn("Workspace.closeTab")(function* (id: string) {
+        yield* setTabs((tabs) => tabs.filter((tab) => tab.id !== id))
+        const session = (yield* SubscriptionRef.get(state)).sessions[id]
+        if (session && session.status !== "working") yield* discard(id)
+      })
+
+      const openTerminal = Effect.fn("Workspace.openTerminal")(function* (cwd: string, title: string) {
+        const id = crypto.randomUUID()
+        yield* setTabs((tabs) => [...tabs, { _tag: "Terminal", id, cwd, title }])
+        return id
+      })
+
+      const setTerminalTitle = Effect.fn("Workspace.setTerminalTitle")(function* (id: string, title: string) {
+        yield* setTabs((tabs) =>
+          tabs.map((tab) => (tab.id === id && tab._tag === "Terminal" && tab.title !== title ? { ...tab, title } : tab)),
+        )
+      })
 
       // ── agent terminals ───────────────────────────────────────────────
 
@@ -710,7 +849,17 @@ export class Workspace extends Context.Service<
 
       yield* Effect.gen(function* () {
         const [projects, threads] = yield* Effect.all([db.listProjects(), db.listThreads()])
-        yield* update((current) => ({ ...current, loaded: true, projects, threads }))
+        const saved = yield* Effect.sync((): ReadonlyArray<Tab> => {
+          try {
+            const parsed = decodeTabs(JSON.parse(localStorage.getItem(TABS_KEY) ?? "[]"))
+            return parsed._tag === "Some" ? parsed.value : []
+          } catch {
+            return []
+          }
+        })
+        // Terminal tabs come back as fresh shells in the same folder.
+        const tabs = saved.filter((tab) => tab._tag === "Terminal" || threads.some((thread) => thread.id === tab.id))
+        yield* update((current) => ({ ...current, loaded: true, projects, threads, tabs }))
       }).pipe(
         Effect.catchCause((cause) =>
           Effect.logError("Couldn't load workspace", Cause.pretty(cause)).pipe(
@@ -737,6 +886,14 @@ export class Workspace extends Context.Service<
         setMode,
         respondPermission,
         deleteThread,
+        fork,
+        closeTab,
+        openTerminal,
+        setTerminalTitle,
+        readFile: (path) =>
+          tauri
+            .invoke<string>("fs_read_text", { path, line: null, limit: null })
+            .pipe(Effect.mapError(toWorkspaceError)),
         answerQuestions,
         decidePlan,
         searchThreads: (query) => db.searchThreads(query).pipe(Effect.mapError(toWorkspaceError)),
@@ -751,6 +908,12 @@ export class Workspace extends Context.Service<
         ),
         gitBranch: (cwd) =>
           tauri.invoke<string | null>("git_branch", { cwd }).pipe(Effect.orElseSucceed(() => null)),
+        listFiles: (cwd) =>
+          tauri.invoke<ReadonlyArray<string>>("project_files", { cwd }).pipe(Effect.mapError(toWorkspaceError)),
+        listSkills: (agentId, cwd) =>
+          tauri
+            .invoke<ReadonlyArray<Skill>>("skills_list", { agent: agentId, cwd })
+            .pipe(Effect.mapError(toWorkspaceError)),
       })
     }),
   ).pipe(Layer.provide([Database.layer, AgentHost.layer, AcpClient.layer, Tauri.layer]))

@@ -1,6 +1,7 @@
 import type * as acp from "@agentclientprotocol/sdk"
 import type { AgentId } from "./agents"
 import type { AskQuestion, Todo } from "./cursor"
+import type { Mention } from "./mentions"
 
 export interface ImageAttachment {
   readonly name: string
@@ -15,6 +16,9 @@ export type TimelineItem =
       readonly id: string
       readonly text: string
       readonly images?: ReadonlyArray<ImageAttachment>
+      readonly mentions?: ReadonlyArray<Mention>
+      /** How long the agent worked on this message, once its turn is over. */
+      readonly durationMs?: number
     }
   | { readonly _tag: "Agent"; readonly id: string; readonly text: string }
   | { readonly _tag: "Thought"; readonly id: string; readonly text: string }
@@ -30,6 +34,19 @@ export type TimelineItem =
     }
   | { readonly _tag: "Plan"; readonly id: string; readonly entries: ReadonlyArray<acp.PlanEntry> }
   | { readonly _tag: "Notice"; readonly id: string; readonly text: string; readonly tone: "info" | "error" }
+  | {
+      /** Where a forked thread picks up. Everything before it came from the source thread. */
+      readonly _tag: "Fork"
+      readonly id: string
+      readonly fromTitle: string
+      readonly fromAgentId: AgentId
+      readonly fromAcpSessionId: string | null
+      /**
+       * How the new agent gets the history: the agent's own `session/fork`, or a
+       * transcript sent with the first prompt (other agents, or no fork support).
+       */
+      readonly handoff: "native" | "transcript"
+    }
 
 export type SessionStatus = "starting" | "ready" | "working" | "failed"
 
@@ -67,11 +84,18 @@ export interface Session {
   readonly items: ReadonlyArray<TimelineItem>
   readonly configOptions: ReadonlyArray<acp.SessionConfigOption>
   readonly modes: acp.SessionModeState | null
-  readonly usage: { readonly used: number; readonly size: number } | null
+  readonly usage: {
+    readonly used: number
+    readonly size: number
+    /** Cumulative session cost, when the agent reports it. */
+    readonly cost: acp.Cost | null
+  } | null
   readonly request: PendingRequest | null
   /** Whether the agent accepts image blocks in prompts. */
   readonly supportsImages: boolean
   readonly authMethods: ReadonlyArray<acp.AuthMethod>
+  /** Slash commands the agent advertises. */
+  readonly commands: ReadonlyArray<acp.AvailableCommand>
   readonly createdAt: number
   readonly updatedAt: number
   readonly turnStartedAt: number | null
@@ -102,6 +126,7 @@ export const makeSession = (fields: {
   request: null,
   supportsImages: false,
   authMethods: [],
+  commands: [],
   createdAt: fields.now,
   updatedAt: fields.now,
   turnStartedAt: null,
@@ -198,8 +223,10 @@ export const applyUpdate = (session: Session, update: acp.SessionUpdate): Sessio
       return { ...session, configOptions: update.configOptions }
     case "session_info_update":
       return update.title ? { ...session, title: update.title } : session
+    case "available_commands_update":
+      return { ...session, commands: update.availableCommands }
     case "usage_update":
-      return { ...session, usage: { used: update.used, size: update.size } }
+      return { ...session, usage: { used: update.used, size: update.size, cost: update.cost ?? null } }
     default:
       return session
   }
@@ -212,6 +239,57 @@ export const settleTools = (items: ReadonlyArray<TimelineItem>): ReadonlyArray<T
       ? { ...item, status: "failed" as const }
       : item,
   )
+
+/** Records how long the turn for the latest user message took. */
+export const timeTurn = (items: ReadonlyArray<TimelineItem>, durationMs: number): ReadonlyArray<TimelineItem> => {
+  const index = items.findLastIndex((item) => item._tag === "User")
+  return items.map((item, i) => (i === index && item._tag === "User" ? { ...item, durationMs } : item))
+}
+
+/** Updates that rebuild the timeline. Session-level updates (commands, modes, usage) aren't history. */
+export const isHistory = (update: acp.SessionUpdate) =>
+  update.sessionUpdate === "user_message_chunk" ||
+  update.sessionUpdate === "agent_message_chunk" ||
+  update.sessionUpdate === "agent_thought_chunk" ||
+  update.sessionUpdate === "tool_call" ||
+  update.sessionUpdate === "tool_call_update" ||
+  update.sessionUpdate === "plan"
+
+type ForkItem = Extract<TimelineItem, { _tag: "Fork" }>
+
+/** The fork marker whose history the agent still needs: nothing has been sent since it. */
+export const pendingFork = (items: ReadonlyArray<TimelineItem>): ForkItem | null => {
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index]!
+    if (item._tag === "User") return null
+    if (item._tag === "Fork") return item
+  }
+  return null
+}
+
+const TRANSCRIPT_LIMIT = 60_000
+
+/**
+ * The conversation before a fork, as plain text for another agent. Tool calls
+ * shrink to one line each; the oldest part is cut when it runs long.
+ */
+export const transcript = (items: ReadonlyArray<TimelineItem>, fork: ForkItem, agentName: string) => {
+  const end = items.indexOf(fork)
+  const lines: Array<string> = []
+  for (const item of items.slice(0, end < 0 ? items.length : end)) {
+    if (item._tag === "User") lines.push(`## User\n${item.text}`)
+    else if (item._tag === "Agent") lines.push(`## ${agentName}\n${item.text}`)
+    else if (item._tag === "Tool") lines.push(`- ${item.title} (${item.status})`)
+    else if (item._tag === "Plan") lines.push(item.entries.map((entry) => `- [${entry.status}] ${entry.content}`).join("\n"))
+  }
+  const body = lines.join("\n\n")
+  const trimmed = body.length > TRANSCRIPT_LIMIT ? `[Earlier messages cut]\n\n${body.slice(-TRANSCRIPT_LIMIT)}` : body
+  return [
+    `This thread was handed off to you from ${agentName}. Here is the conversation so far, for context. You don't need to repeat any of it.`,
+    `<conversation>\n${trimmed}\n</conversation>`,
+    "The user's next message follows.",
+  ].join("\n\n")
+}
 
 export const titleFrom = (text: string) => {
   const line = text.trim().split("\n")[0] ?? ""

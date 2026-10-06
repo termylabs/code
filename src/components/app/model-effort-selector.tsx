@@ -1,7 +1,6 @@
 import type * as acp from "@agentclientprotocol/sdk"
 import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 import { useState } from "react"
-import { StepSlider } from "@/components/step-slider/components/step-slider"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import { EffortMeter } from "./primitives"
@@ -9,7 +8,6 @@ import { EffortMeter } from "./primitives"
 export interface Choice {
   readonly value: string
   readonly name: string
-  readonly description?: string | null
 }
 
 const effortNames: Record<string, string> = { xhigh: "Extra high" }
@@ -47,6 +45,7 @@ export const ModelEffortSelector = ({
 }: Props) => {
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<"effort" | "models">("effort")
+  const [hovered, setHovered] = useState<number | null>(null)
   const hasEfforts = efforts.length > 1
 
   const selectedModel = models.find((choice) => choice.value === model)
@@ -60,6 +59,7 @@ export const ModelEffortSelector = ({
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next)
+    setHovered(null)
     if (next) setView(hasEfforts ? "effort" : "models")
   }
 
@@ -82,57 +82,83 @@ export const ModelEffortSelector = ({
       <PopoverContent
         side="top"
         align="start"
-        sideOffset={10}
-        className="w-[316px] gap-0 rounded-[18px] bg-[#1e1e21]/97 p-0 shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_0_0_1px_rgb(255_255_255/0.07),0_24px_60px_rgb(0_0_0/0.6),0_4px_12px_rgb(0_0_0/0.35)] ring-0 backdrop-blur-xl"
+        sideOffset={8}
+        className="w-[232px] gap-0 rounded-[14px] bg-[#1e1e21]/97 p-1 shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1px_rgb(255_255_255/0.07),0_16px_40px_rgb(0_0_0/0.5)] ring-0 backdrop-blur-xl"
       >
         {view === "effort" && hasEfforts ? (
-          <div key="effort" className="animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col gap-3 p-4 pt-3.5 duration-200">
-            <div className="flex items-start">
-              <span className="flex size-6 items-center justify-center">
-                <EffortMeter level={effortIndex} of={efforts.length} size="md" />
-              </span>
-              <div className="flex flex-1 flex-col items-center gap-0.5">
-                <span className="text-amber text-[17px] leading-6 font-semibold tracking-[-0.015em]">
-                  {selectedEffort?.name}
-                </span>
-                {models.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setView("models")}
-                    className="text-text-2 hover:text-text flex items-center gap-1 rounded-full px-2 text-[13px] transition-colors"
-                  >
-                    {selectedModel?.name ?? "Choose model"}
-                    <ChevronRightIcon className="size-3" />
-                  </button>
-                )}
+          <div key="effort" className="animate-in fade-in-0 flex flex-col duration-150">
+            <div className="flex flex-col gap-2 px-2.5 pt-2 pb-2.5">
+              <div className="flex h-5 items-center justify-between text-xs">
+                <span className="text-text-3">Effort</span>
+                <span className="text-text">{efforts[hovered ?? effortIndex]?.name}</span>
               </div>
-              <span className="size-6" />
+              <div
+                role="radiogroup"
+                aria-label="Reasoning effort"
+                onMouseLeave={() => setHovered(null)}
+                onKeyDown={(event) => {
+                  const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0
+                  const next = efforts[effortIndex + step]
+                  if (step === 0 || !next) return
+                  event.preventDefault()
+                  onEffortChange(next.value)
+                }}
+                className="flex gap-1"
+              >
+                {efforts.map((choice, index) => (
+                  <button
+                    key={choice.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={index === effortIndex}
+                    aria-label={choice.name}
+                    tabIndex={index === effortIndex ? 0 : -1}
+                    onClick={() => onEffortChange(choice.value)}
+                    onMouseEnter={() => setHovered(index)}
+                    className="flex h-5 flex-1 items-center"
+                  >
+                    <span
+                      className={cn(
+                        "h-1.5 w-full rounded-full transition-colors duration-150",
+                        index <= effortIndex
+                          ? "bg-amber"
+                          : hovered !== null && index <= hovered
+                            ? "bg-amber/35"
+                            : "bg-white/10",
+                      )}
+                    />
+                  </button>
+                ))}
+              </div>
             </div>
-            <StepSlider
-              aria-label="Reasoning effort"
-              steps={efforts.map((_, index) => index)}
-              value={effortIndex}
-              onValueChange={(index) => {
-                const next = efforts[index]
-                if (next) onEffortChange(next.value)
-              }}
-              formatLabel={(index) => efforts[index]?.name ?? ""}
-              getValueText={(index) => efforts[index]?.name ?? ""}
-            />
+            {models.length > 0 && (
+              <>
+                <div className="bg-line mx-1.5 h-px" />
+                <button
+                  type="button"
+                  onClick={() => setView("models")}
+                  className="hover:bg-hover mt-1 flex h-8 items-center gap-2 rounded-[10px] px-2.5 text-xs transition-colors"
+                >
+                  <span className="text-text-3">Model</span>
+                  <span className="text-text ml-auto truncate">{selectedModel?.name ?? "Choose"}</span>
+                  <ChevronRightIcon className="text-text-3 size-3 shrink-0" />
+                </button>
+              </>
+            )}
           </div>
         ) : (
-          <div key="models" className="animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col p-1.5 duration-200">
+          <div key="models" className="animate-in fade-in-0 flex flex-col duration-150">
             {hasEfforts && (
               <button
                 type="button"
                 onClick={() => setView("effort")}
-                className="text-text-3 hover:text-text-2 flex h-8 items-center gap-1 px-2.5 text-xs"
+                className="text-text-3 hover:text-text-2 flex h-7 items-center gap-1 px-1.5 text-xs transition-colors"
               >
                 <ChevronLeftIcon className="size-3.5" />
-                Reasoning effort
+                Effort
               </button>
             )}
-            <div className="flex max-h-80 flex-col overflow-y-auto">
+            <div className="flex max-h-72 flex-col overflow-y-auto">
               {models.map((choice) => (
                 <button
                   key={choice.value}
@@ -142,15 +168,10 @@ export const ModelEffortSelector = ({
                     if (hasEfforts) setView("effort")
                     else setOpen(false)
                   }}
-                  className="hover:bg-hover flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition-colors"
+                  className="hover:bg-hover flex h-8 shrink-0 items-center justify-between gap-3 rounded-[10px] px-2.5 text-left transition-colors"
                 >
-                  <span className="flex min-w-0 flex-col">
-                    <span className="text-text truncate text-[13px]">{choice.name}</span>
-                    {choice.description && (
-                      <span className="text-text-3 truncate text-xs">{choice.description}</span>
-                    )}
-                  </span>
-                  {choice.value === model && <CheckIcon className="text-amber size-4 shrink-0" />}
+                  <span className="text-text truncate text-xs">{choice.name}</span>
+                  {choice.value === model && <CheckIcon className="text-amber size-3.5 shrink-0" />}
                 </button>
               ))}
             </div>

@@ -1,6 +1,7 @@
 mod agent;
 mod agent_terminal;
 mod db;
+mod mentions;
 mod shell_env;
 mod terminal;
 mod workspace;
@@ -32,6 +33,8 @@ pub fn run() {
             workspace::fs_write_text,
             workspace::git_branch,
             workspace::fs_read_image,
+            mentions::project_files,
+            mentions::skills_list,
             terminal::term_open,
             terminal::term_write,
             terminal::term_resize,

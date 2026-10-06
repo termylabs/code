@@ -19,6 +19,7 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
+ignore = "0.4"
 tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt-multi-thread", "time"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 # Raw PTY API lives on the `termy-code/raw-pty` branch of termy (worktree at ../termy-raw-pty).

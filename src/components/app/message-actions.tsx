@@ -24,10 +24,13 @@ export const MessageActions = ({
   text,
   onRetry,
   className,
+  children,
 }: {
   text: string
   onRetry?: () => void
   className?: string
+  /** More actions after copy and retry. */
+  children?: ReactNode
 }) => {
   const [copied, setCopied] = useState(false)
   const reset = useRef<number | undefined>(undefined)
@@ -54,6 +57,7 @@ export const MessageActions = ({
           <RefreshCwIcon />
         </ActionButton>
       )}
+      {children}
     </div>
   )
 }

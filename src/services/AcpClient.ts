@@ -1,5 +1,6 @@
 import * as acp from "@agentclientprotocol/sdk"
 import { Context, Effect, Layer, Schema, type Scope } from "effect"
+import type { Mention } from "@/domain/mentions"
 import type { ImageAttachment } from "@/domain/session"
 import type { AgentProcess } from "./AgentHost"
 import { Tauri } from "./Tauri"
@@ -32,20 +33,32 @@ export interface ClientHandlers {
 export interface Prompt {
   readonly text: string
   readonly images: ReadonlyArray<ImageAttachment>
+  readonly mentions: ReadonlyArray<Mention>
+  /** Sent ahead of the text, e.g. the history of a handed-off thread. */
+  readonly context?: string
 }
 
 const toContentBlocks = (prompt: Prompt): Array<acp.ContentBlock> => [
+  ...(prompt.context ? [{ type: "text" as const, text: prompt.context }] : []),
   ...(prompt.text ? [{ type: "text" as const, text: prompt.text }] : []),
   ...prompt.images.map((image) => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })),
+  // Every ACP agent accepts resource links; they arrive as file links the model can open.
+  ...prompt.mentions.map((mention) => ({
+    type: "resource_link" as const,
+    name: mention.name,
+    uri: `file://${encodeURI(mention.path)}`,
+  })),
 ]
 
 export interface AcpConnection {
   readonly info: acp.InitializeResponse
   readonly canResume: boolean
   readonly canLoad: boolean
+  readonly canFork: boolean
   newSession(cwd: string): Effect.Effect<acp.NewSessionResponse, AcpError>
   resumeSession(sessionId: string, cwd: string): Effect.Effect<acp.ResumeSessionResponse, AcpError>
   loadSession(sessionId: string, cwd: string): Effect.Effect<acp.LoadSessionResponse, AcpError>
+  forkSession(sessionId: string, cwd: string): Effect.Effect<acp.ForkSessionResponse, AcpError>
   authenticate(methodId: string): Effect.Effect<void, AcpError>
   prompt(sessionId: string, prompt: Prompt): Effect.Effect<acp.PromptResponse, AcpError>
   cancel(sessionId: string): Effect.Effect<void, AcpError>
@@ -142,11 +155,14 @@ export class AcpClient extends Context.Service<
           info,
           canResume: Boolean(info.agentCapabilities?.sessionCapabilities?.resume),
           canLoad: Boolean(info.agentCapabilities?.loadSession),
+          canFork: Boolean(info.agentCapabilities?.sessionCapabilities?.fork),
           newSession: (cwd) => call("session/new", () => connection.newSession({ cwd, mcpServers: [] })),
           resumeSession: (sessionId, cwd) =>
             call("session/resume", () => connection.resumeSession({ sessionId, cwd, mcpServers: [] })),
           loadSession: (sessionId, cwd) =>
             call("session/load", () => connection.loadSession({ sessionId, cwd, mcpServers: [] })),
+          forkSession: (sessionId, cwd) =>
+            call("session/fork", () => connection.unstable_forkSession({ sessionId, cwd, mcpServers: [] })),
           authenticate: (methodId) => call("authenticate", () => connection.authenticate({ methodId })).pipe(Effect.asVoid),
           prompt: (sessionId, prompt) =>
             call("session/prompt", () => connection.prompt({ sessionId, prompt: toContentBlocks(prompt) })),

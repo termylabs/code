@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { AgentId, agentList } from "@/domain/agents"
+import type { Mention } from "@/domain/mentions"
 import type { ImageAttachment } from "@/domain/session"
 import { useRun, useWorkspace, useWorkspaceState } from "@/lib/runtime"
 import { cn } from "@/lib/utils"
@@ -106,10 +107,10 @@ const NewThread = () => {
     if (added) await navigate({ to: "/", search: { project: added.id } })
   }
 
-  const send = (text: string, images: ReadonlyArray<ImageAttachment>) => {
+  const send = (text: string, images: ReadonlyArray<ImageAttachment>, mentions: ReadonlyArray<Mention>) => {
     if (!draftId) return
     sent.current = true
-    void run(workspace.send(draftId, text, images))
+    void run(workspace.send(draftId, text, images, mentions))
     void navigate({ to: "/thread/$threadId", params: { threadId: draftId } })
   }
 
@@ -166,22 +167,22 @@ const NewThread = () => {
                 <span className="font-medium">{project.name}</span>
                 <ChevronDownIcon className="text-text-3 size-3" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-64 rounded-xl p-1">
+              <DropdownMenuContent align="start" className="w-auto min-w-44 rounded-xl p-1">
                 {projects.map((option) => (
                   <DropdownMenuItem
                     key={option.id}
+                    title={option.path}
                     onClick={() => void navigate({ to: "/", search: { project: option.id, agent: agentId } })}
-                    className="gap-2.5 rounded-lg py-2"
+                    className="h-8 gap-2.5 rounded-lg"
                   >
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="text-text text-[13px]">{option.name}</span>
-                      <span className="text-text-3 truncate font-mono text-[11px]">{option.path}</span>
+                    <span className="text-text flex-1 truncate text-xs">{option.name}</span>
+                    <span className="flex size-4 shrink-0 items-center">
+                      {option.id === project.id && <CheckIcon className="text-amber size-3.5" />}
                     </span>
-                    {option.id === project.id && <CheckIcon className="text-amber size-3.5" />}
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => void addProject()} className="gap-2.5 rounded-lg py-2">
+                <DropdownMenuItem onClick={() => void addProject()} className="h-8 gap-2.5 rounded-lg text-xs">
                   <FolderPlusIcon />
                   Add project
                 </DropdownMenuItem>

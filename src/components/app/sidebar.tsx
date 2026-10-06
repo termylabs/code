@@ -8,17 +8,26 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import type { AgentId } from "@/domain/agents"
 import type { SessionStatus } from "@/domain/session"
 import { useRun, useWorkspace, useWorkspaceState } from "@/lib/runtime"
 import { cn } from "@/lib/utils"
 import type { Project, ThreadSummary } from "@/services/Database"
+import { AgentIcon } from "./agent-icon"
 import { Kbd, Led, relativeTime } from "./primitives"
 
-const StatusSlot = ({ status }: { status: SessionStatus | undefined }) => (
-  <span className="flex size-3.5 shrink-0 items-center justify-center">
-    {status === "working" && <Led />}
-    {status === "starting" && <span className="border-text-3 size-2.5 rounded-full border border-dashed" />}
-    {status === "failed" && <span className="bg-remove size-1.5 rounded-full" />}
+/** The thread's agent, with a badge in the corner while it's starting, working or failed. */
+export const AgentSlot = ({ agent, status, dim }: { agent: AgentId; status: SessionStatus | undefined; dim: boolean }) => (
+  <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+    <AgentIcon
+      agent={agent}
+      className={cn("text-text-2 size-3.5 transition-opacity", dim && "opacity-55 group-hover/thread:opacity-100")}
+    />
+    {status === "working" && <Led className="absolute -right-1 -bottom-1 size-[7px]" />}
+    {status === "starting" && (
+      <span className="border-text-2 bg-panel absolute -right-1 -bottom-1 size-[7px] rounded-full border border-dashed" />
+    )}
+    {status === "failed" && <span className="bg-remove absolute -right-1 -bottom-1 size-[7px] rounded-full" />}
   </span>
 )
 
@@ -41,7 +50,7 @@ const ThreadRow = ({ thread, active, status }: { thread: ThreadSummary; active: 
         active ? "bg-hover" : "hover:bg-hover/60",
       )}
     >
-      <StatusSlot status={status} />
+      <AgentSlot agent={thread.agentId} status={status} dim={!active && status !== "working"} />
       <span
         className={cn(
           "min-w-0 flex-1 truncate text-[13px]",
@@ -173,7 +182,7 @@ export const Sidebar = ({ onSearch }: { onSearch: () => void }) => {
     <aside className="bg-panel flex h-full w-[264px] shrink-0 flex-col px-2.5 pb-3">
       <div data-tauri-drag-region className="h-[52px] shrink-0" />
 
-      <nav className="flex flex-col gap-0.5 pt-1 pb-5">
+      <nav className="flex flex-col gap-1.5 pt-1 pb-5">
         <Link
           to="/"
           className="bg-raised flex h-[34px] items-center gap-2.5 rounded-lg px-2.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.05),0_0_0_1px_rgb(255_255_255/0.04)] transition-colors hover:bg-[#202024]"

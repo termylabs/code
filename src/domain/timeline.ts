@@ -25,6 +25,65 @@ export const toBlocks = (items: ReadonlyArray<TimelineItem>): ReadonlyArray<Bloc
   return blocks
 }
 
+export interface Indexed {
+  readonly block: Block
+  /** Position in the flat block list. */
+  readonly index: number
+}
+
+/** What the timeline renders: a block, or a finished turn's steps folded behind "Worked for". */
+export type Entry =
+  | ({ readonly _tag: "Block" } & Indexed)
+  | {
+      readonly _tag: "Worked"
+      readonly id: string
+      readonly durationMs: number | null
+      readonly steps: ReadonlyArray<Indexed>
+    }
+
+/**
+ * Folds each finished turn down to its final answer. Everything between the
+ * user's message and the last agent message goes behind a "Worked for" entry;
+ * notices after the answer stay visible. The running turn shows in full.
+ */
+export const toEntries = (blocks: ReadonlyArray<Block>, working: boolean): ReadonlyArray<Entry> => {
+  const entries: Array<Entry> = []
+  const push = (from: number, to: number) => {
+    for (let index = from; index < to; index++) entries.push({ _tag: "Block", block: blocks[index]!, index })
+  }
+  let start = blocks.findIndex((block) => block._tag === "User")
+  push(0, start < 0 ? blocks.length : start)
+  while (start >= 0 && start < blocks.length) {
+    const user = blocks[start]!
+    let end = start + 1
+    while (end < blocks.length && blocks[end]!._tag !== "User") end++
+    push(start, start + 1)
+
+    const live = working && end === blocks.length
+    let answer = -1
+    let lastStep = start
+    for (let index = start + 1; index < end; index++) {
+      const kind = blocks[index]!._tag
+      if (kind === "Agent") answer = index
+      if (kind !== "Notice" && kind !== "Fork") lastStep = index
+    }
+    const foldEnd = answer >= 0 ? answer : lastStep + 1
+    if (!live && foldEnd > start + 1) {
+      entries.push({
+        _tag: "Worked",
+        id: `worked-${user.id}`,
+        durationMs: user._tag === "User" ? (user.durationMs ?? null) : null,
+        steps: blocks.slice(start + 1, foldEnd).map((block, offset) => ({ block, index: start + 1 + offset })),
+      })
+      push(foldEnd, end)
+    } else {
+      push(start + 1, end)
+    }
+    start = end
+  }
+  return entries
+}
+
 export const isRunning = (tool: ToolItem) => tool.status === "pending" || tool.status === "in_progress"
 
 interface Phrase {

@@ -13,8 +13,12 @@ Termy Code talks to the agents over the [Agent Client Protocol](https://agentcli
 - **Tool calls in the timeline.** Agent tool calls are grouped into stacks. You can review file diffs in a side pane.
 - **Built-in terminal.** The terminal panel uses xterm.js on top of Termy's raw PTY. Commands that agents run through ACP `terminal/*` use the same PTY layer.
 - **Permission prompts.** Agent requests for permission or input appear inline.
-- **Composer.** You can attach images, switch models and set reasoning effort.
+- **Composer.** You can attach images, switch models and set reasoning effort. Type `@` to mention a file or `$` to use one of the agent's skills.
 - **Command palette.** Jump between projects and threads from the keyboard.
+- **Tabs.** Keep several threads open at once. ⌘1–9 jumps to a tab and ⌃Tab cycles through them.
+- **Fork and hand off.** Fork a thread, or part of one, to the same agent or hand it off to another. The same agent forks its own session; a different agent gets a transcript of the conversation.
+- **Slash commands.** Type `/` to run the commands the agent advertises over ACP.
+- **File tree.** Browse and preview project files next to the thread. Files changed in the thread are highlighted.
 
 ## Agents
 
@@ -31,7 +35,7 @@ macOS starts GUI apps with a minimal `PATH`. Termy Code reads `PATH` from your l
 ### Prerequisites
 
 - [Rust](https://rustup.rs) (stable)
-- [Node.js](https://nodejs.org) and [pnpm](https://pnpm.io)
+- [Bun](https://bun.sh)
 - The [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform
 
 ### Setup
@@ -42,7 +46,7 @@ macOS starts GUI apps with a minimal `PATH`. Termy Code reads `PATH` from your l
 git clone https://github.com/termylabs/code termycode
 git clone -b termy-code/raw-pty https://github.com/lassejlv/termy termy-raw-pty
 cd termycode
-pnpm install
+bun install
 ```
 
 You should end up with this layout:
@@ -56,8 +60,8 @@ Dev/
 ### Run
 
 ```sh
-pnpm tauri dev      # run the app with hot reload
-pnpm tauri build    # build a release bundle
+bun tauri dev       # run the app with hot reload
+bun tauri build     # build a release bundle
 ```
 
 ## Architecture
@@ -68,6 +72,7 @@ src-tauri/          Rust backend (Tauri v2)
 ├── agent_terminal.rs   ACP terminal/* commands on Termy PTYs with sanitized output
 ├── terminal.rs         interactive shells for the terminal panel
 ├── workspace.rs        ACP fs/* requests, git branch and image attachments
+├── mentions.rs         project files and agent skills for @ and $ mentions
 ├── db.rs               SQLite storage and search for projects and threads
 └── shell_env.rs        resolves the login-shell PATH for spawned agents
 

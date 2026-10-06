@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TerminalTerminalIdRouteImport } from './routes/terminal.$terminalId'
 import { Route as ThreadThreadIdRouteImport } from './routes/thread.$threadId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TerminalTerminalIdRoute = TerminalTerminalIdRouteImport.update({
+  id: '/terminal/$terminalId',
+  path: '/terminal/$terminalId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ThreadThreadIdRoute = ThreadThreadIdRouteImport.update({
@@ -25,27 +31,31 @@ const ThreadThreadIdRoute = ThreadThreadIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/terminal/$terminalId': typeof TerminalTerminalIdRoute
   '/thread/$threadId': typeof ThreadThreadIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/terminal/$terminalId': typeof TerminalTerminalIdRoute
   '/thread/$threadId': typeof ThreadThreadIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/terminal/$terminalId': typeof TerminalTerminalIdRoute
   '/thread/$threadId': typeof ThreadThreadIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/thread/$threadId'
+  fullPaths: '/' | '/terminal/$terminalId' | '/thread/$threadId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/thread/$threadId'
-  id: '__root__' | '/' | '/thread/$threadId'
+  to: '/' | '/terminal/$terminalId' | '/thread/$threadId'
+  id: '__root__' | '/' | '/terminal/$terminalId' | '/thread/$threadId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  TerminalTerminalIdRoute: typeof TerminalTerminalIdRoute
   ThreadThreadIdRoute: typeof ThreadThreadIdRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terminal/$terminalId': {
+      id: '/terminal/$terminalId'
+      path: '/terminal/$terminalId'
+      fullPath: '/terminal/$terminalId'
+      preLoaderRoute: typeof TerminalTerminalIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/thread/$threadId': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  TerminalTerminalIdRoute: TerminalTerminalIdRoute,
   ThreadThreadIdRoute: ThreadThreadIdRoute,
 }
 export const routeTree = rootRouteImport

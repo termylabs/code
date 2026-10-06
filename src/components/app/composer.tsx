@@ -1,12 +1,15 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview"
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, PlusIcon, RotateCwIcon, SquareIcon, XIcon } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Shimmer } from "@/components/shimmer/components/shimmer"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { agents } from "@/domain/agents"
+import { activeQuery, type Mention, type Skill } from "@/domain/mentions"
 import { configOption, type ImageAttachment, type Session } from "@/domain/session"
 import { useRun, useWorkspace } from "@/lib/runtime"
 import { cn } from "@/lib/utils"
+import { emptyText, MentionPicker, type PickerRow, pickerRows } from "./mention-picker"
 import { choicesOf, effortChoicesOf, ModelEffortSelector } from "./model-effort-selector"
 import { formatElapsed, Led } from "./primitives"
 import { RequestPrompt } from "./request-prompt"
@@ -72,7 +75,7 @@ const ModeMenu = ({ session }: { session: Session }) => {
   const run = useRun()
   const modeOption = configOption(session, "mode")
   const modes = modeOption
-    ? choicesOf(modeOption).map((choice) => ({ id: choice.value, name: choice.name, description: choice.description }))
+    ? choicesOf(modeOption).map((choice) => ({ id: choice.value, name: choice.name }))
     : (session.modes?.availableModes ?? [])
   const current = modeOption?.type === "select" ? modeOption.currentValue : session.modes?.currentModeId
   if (modes.length < 2) return null
@@ -87,17 +90,10 @@ const ModeMenu = ({ session }: { session: Session }) => {
         {selected?.name ?? "Mode"}
         <ChevronDownIcon className="text-text-3 size-3" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="w-64 rounded-xl p-1">
+      <DropdownMenuContent side="top" align="start" className="w-auto min-w-40 rounded-xl p-1">
         {modes.map((mode) => (
-          <DropdownMenuItem
-            key={mode.id}
-            onClick={() => choose(mode.id)}
-            className="items-start gap-2.5 rounded-lg py-2"
-          >
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="text-text text-[13px]">{mode.name}</span>
-              {mode.description && <span className="text-text-3 text-xs leading-4">{mode.description}</span>}
-            </span>
+          <DropdownMenuItem key={mode.id} onClick={() => choose(mode.id)} className="h-8 gap-2.5 rounded-lg">
+            <span className="text-text flex-1 truncate text-xs">{mode.name}</span>
             <span className="flex size-4 shrink-0 items-center">
               {mode.id === current && <CheckIcon className="text-amber size-3.5" />}
             </span>
@@ -108,25 +104,79 @@ const ModeMenu = ({ session }: { session: Session }) => {
   )
 }
 
-const ContextRing = ({ used, size }: { used: number; size: number }) => {
-  const ratio = Math.min(used / Math.max(size, 1), 1)
+const NEARLY_FULL = 0.85
+
+const tokens = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 })
+
+const formatCost = (cost: NonNullable<Session["usage"]>["cost"]) => {
+  if (!cost) return null
+  try {
+    return new Intl.NumberFormat("en", { style: "currency", currency: cost.currency }).format(cost.amount)
+  } catch {
+    return `${cost.amount.toFixed(2)} ${cost.currency}`
+  }
+}
+
+const ContextRing = ({ usage }: { usage: NonNullable<Session["usage"]> }) => {
+  const ratio = Math.min(usage.used / Math.max(usage.size, 1), 1)
+  const percent = Math.round(ratio * 100)
+  const full = ratio > NEARLY_FULL
   const circumference = 2 * Math.PI * 6
+  const cost = formatCost(usage.cost)
   return (
-    <span title={`${Math.round(ratio * 100)}% of context used`} className="flex size-7 items-center justify-center">
-      <svg viewBox="0 0 16 16" className="size-4 -rotate-90">
-        <circle cx="8" cy="8" r="6" fill="none" stroke="var(--line)" strokeWidth="2" />
-        <circle
-          cx="8"
-          cy="8"
-          r="6"
-          fill="none"
-          stroke={ratio > 0.85 ? "var(--amber)" : "var(--text-2)"}
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeDasharray={`${circumference * ratio} ${circumference}`}
-        />
-      </svg>
-    </span>
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        delay={150}
+        aria-label={`${percent}% of context used`}
+        className="hover:bg-white/5 aria-expanded:bg-white/5 flex size-7 items-center justify-center rounded-lg transition-colors"
+      >
+        <svg viewBox="0 0 16 16" className="size-4 -rotate-90">
+          <circle cx="8" cy="8" r="6" fill="none" stroke="var(--line)" strokeWidth="2" />
+          <circle
+            cx="8"
+            cy="8"
+            r="6"
+            fill="none"
+            stroke={full ? "var(--amber)" : "var(--text-2)"}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeDasharray={`${circumference * ratio} ${circumference}`}
+          />
+        </svg>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        sideOffset={8}
+        className="w-[220px] gap-0 rounded-[14px] bg-[#1e1e21]/97 p-1 shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1px_rgb(255_255_255/0.07),0_16px_40px_rgb(0_0_0/0.5)] ring-0 backdrop-blur-xl"
+      >
+        <div className="flex flex-col gap-2 px-2.5 pt-2 pb-2.5">
+          <div className="flex h-5 items-center justify-between text-xs">
+            <span className="text-text-3">Context</span>
+            <span className={full ? "text-amber" : "text-text"}>{percent}% used</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div
+              className={cn("h-full rounded-full transition-[width] duration-300", full ? "bg-amber" : "bg-text-2")}
+              style={{ width: `${ratio * 100}%` }}
+            />
+          </div>
+          <span className="text-text-3 text-xs">
+            {tokens.format(usage.used)} of {tokens.format(usage.size)} tokens
+          </span>
+        </div>
+        {cost && (
+          <>
+            <div className="bg-line mx-1.5 h-px" />
+            <div className="flex h-8 items-center justify-between px-2.5 text-xs">
+              <span className="text-text-3">Session cost</span>
+              <span className="text-text">{cost}</span>
+            </div>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -176,7 +226,7 @@ const Attachments = ({
 
 interface ComposerProps {
   readonly session: Session | undefined
-  readonly onSend: (text: string, images: ReadonlyArray<ImageAttachment>) => void
+  readonly onSend: (text: string, images: ReadonlyArray<ImageAttachment>, mentions: ReadonlyArray<Mention>) => void
   readonly placeholder: string
   readonly autoFocus?: boolean
   readonly className?: string
@@ -188,6 +238,13 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
   const [text, setText] = useState("")
   const [images, setImages] = useState<ReadonlyArray<ImageAttachment>>([])
   const [dragging, setDragging] = useState(false)
+  const [mentions, setMentions] = useState<ReadonlyArray<Mention>>([])
+  const [caret, setCaret] = useState(0)
+  const [pickerIndex, setPickerIndex] = useState(0)
+  /** Where the dismissed mention starts, so Escape keeps it closed until a new one is typed. */
+  const [dismissedAt, setDismissedAt] = useState<number | null>(null)
+  const [files, setFiles] = useState<ReadonlyArray<string> | null>(null)
+  const [skills, setSkills] = useState<ReadonlyArray<Skill> | null>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const working = session?.status === "working"
   const acceptsImages = session?.supportsImages ?? false
@@ -236,11 +293,60 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
     if (autoFocus) input.current?.focus()
   }, [autoFocus, session?.id])
 
+  const typed = session ? activeQuery(text, caret) : null
+  const query = typed && typed.start !== dismissedAt ? typed : null
+  const queryKind = query?.kind ?? null
+  const cwd = session?.cwd
+  const agentId = session?.agentId
+
+  // Load fresh files or skills each time the picker opens; typing filters locally.
+  useEffect(() => {
+    if (!queryKind || queryKind === "command" || !cwd || !agentId) return
+    let cancelled = false
+    if (queryKind === "file") {
+      void run(workspace.listFiles(cwd)).then((list) => !cancelled && list && setFiles(list))
+    } else {
+      void run(workspace.listSkills(agentId, cwd)).then((list) => !cancelled && list && setSkills(list))
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [queryKind, cwd, agentId, run, workspace])
+
+  const rows = useMemo(
+    () => (query && cwd ? pickerRows(query.kind, query.query, cwd, files ?? [], skills ?? [], session?.commands ?? []) : []),
+    [query?.kind, query?.query, cwd, files, skills, session?.commands],
+  )
+
+  useEffect(() => setPickerIndex(0), [query?.kind, query?.query])
+
+  const typing = typed !== null
+  useEffect(() => {
+    if (!typing) setDismissedAt(null)
+  }, [typing])
+
+  const choose = (row: PickerRow) => {
+    if (!query) return
+    const before = text.slice(0, query.start) + row.insert + " "
+    const next = before + text.slice(caret)
+    setText(next)
+    const added = row.mention
+    if (added) setMentions((current) => [...current.filter((mention) => mention.token !== added.token), added])
+    setCaret(before.length)
+    requestAnimationFrame(() => input.current?.setSelectionRange(before.length, before.length))
+  }
+
   const submit = () => {
     if (!canSend) return
-    onSend(text, images)
+    onSend(
+      text,
+      images,
+      mentions.filter((mention) => text.includes(mention.token)),
+    )
     setText("")
     setImages([])
+    setMentions([])
+    setDismissedAt(null)
   }
 
   const model = session ? configOption(session, "model") : undefined
@@ -249,12 +355,25 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
   return (
     <div
       className={cn(
-        "bg-raised flex w-full flex-col rounded-2xl shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1px_rgb(255_255_255/0.06),0_20px_50px_rgb(0_0_0/0.5)]",
+        "bg-raised relative flex w-full flex-col rounded-2xl shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1px_rgb(255_255_255/0.06),0_20px_50px_rgb(0_0_0/0.5)]",
         dragging &&
           "shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1.5px_rgb(255_178_36/0.6),0_20px_50px_rgb(0_0_0/0.5)]",
         className,
       )}
     >
+      {query && (
+        <MentionPicker
+          rows={rows}
+          active={pickerIndex}
+          empty={emptyText(
+            query.kind,
+            agentId,
+            query.kind === "file" ? files === null : query.kind === "skill" ? skills === null : !session?.connected,
+          )}
+          onActiveChange={setPickerIndex}
+          onSelect={choose}
+        />
+      )}
       {session && <RequestPrompt session={session} />}
       {session && !session.request && <StatusStrip session={session} />}
       {images.length > 0 && (
@@ -268,7 +387,11 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
         ref={input}
         value={text}
         rows={1}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => {
+          setText(event.target.value)
+          setCaret(event.target.selectionStart)
+        }}
+        onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
         onPaste={(event) => {
           const files = [...event.clipboardData.files].filter((file) => IMAGE_TYPES.has(file.type))
           if (files.length === 0 || !acceptsImages) return
@@ -276,6 +399,27 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
           void Promise.all(files.map(readClipboardImage)).then(addImages)
         }}
         onKeyDown={(event) => {
+          if (query && !event.nativeEvent.isComposing) {
+            const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0
+            if (step !== 0 && rows.length > 0) {
+              event.preventDefault()
+              setPickerIndex((index) => (index + step + rows.length) % rows.length)
+              return
+            }
+            const row = rows[pickerIndex]
+            if ((event.key === "Enter" || event.key === "Tab") && row) {
+              event.preventDefault()
+              choose(row)
+              return
+            }
+            if (event.key === "Escape") {
+              event.preventDefault()
+              // Don't let the window's Escape handler stop the running turn.
+              event.nativeEvent.stopPropagation()
+              setDismissedAt(query.start)
+              return
+            }
+          }
           if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault()
             submit()
@@ -310,7 +454,7 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
         )}
         {session && <ModeMenu session={session} />}
         <span className="flex-1" />
-        {session?.usage && <ContextRing used={session.usage.used} size={session.usage.size} />}
+        {session?.usage && <ContextRing usage={session.usage} />}
         {working ? (
           <button
             type="button"

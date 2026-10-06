@@ -17,14 +17,14 @@ const components: Components = {
       {children}
     </a>
   ),
-  ul: ({ children }) => <ul className="mt-3 flex list-disc flex-col gap-1 pl-5 marker:text-text-3">{children}</ul>,
-  ol: ({ children }) => <ol className="mt-3 flex list-decimal flex-col gap-1 pl-5 marker:text-text-3">{children}</ol>,
+  ul: ({ children }) => <ul className="mt-3 first:mt-0 flex list-disc flex-col gap-1 pl-5 marker:text-text-3">{children}</ul>,
+  ol: ({ children }) => <ol className="mt-3 first:mt-0 flex list-decimal flex-col gap-1 pl-5 marker:text-text-3">{children}</ol>,
   h1: ({ children }) => <h3 className="text-text mt-5 mb-2 text-[15px] font-semibold first:mt-0">{children}</h3>,
   h2: ({ children }) => <h3 className="text-text mt-5 mb-2 text-[15px] font-semibold first:mt-0">{children}</h3>,
   h3: ({ children }) => <h4 className="text-text mt-4 mb-1.5 text-sm font-semibold first:mt-0">{children}</h4>,
   strong: ({ children }) => <strong className="text-text font-semibold">{children}</strong>,
   blockquote: ({ children }) => (
-    <blockquote className="border-line text-text-2 mt-3 border-l-2 pl-3">{children}</blockquote>
+    <blockquote className="border-line text-text-2 mt-3 border-l-2 pl-3 first:mt-0">{children}</blockquote>
   ),
   code: ({ className, children }) =>
     className?.startsWith("language-") ? (
@@ -33,12 +33,12 @@ const components: Components = {
       <code className="bg-white/6 text-text rounded-[5px] px-1.5 py-0.5 font-mono text-[12.5px]">{children}</code>
     ),
   pre: ({ children }) => (
-    <pre className="bg-panel text-text-2 mt-3 overflow-x-auto rounded-xl p-3.5 font-mono text-[12px] leading-5 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.05)]">
+    <pre className="bg-panel text-text-2 mt-3 overflow-x-auto rounded-xl p-3.5 font-mono text-[12px] leading-5 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.05)] first:mt-0">
       {children}
     </pre>
   ),
   table: ({ children }) => (
-    <div className="mt-3 overflow-x-auto">
+    <div className="mt-3 overflow-x-auto first:mt-0">
       <table className="w-full border-collapse text-[13px]">{children}</table>
     </div>
   ),
