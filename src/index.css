@@ -18,6 +18,7 @@
   --text-3: #66645f;
   --amber: #ffb224;
   --amber-ink: #1a1204;
+  --effort-max-gradient: linear-gradient(90deg, #ff7a1a 0%, #ffb224 25%, #ffe3a1 50%, #ffb224 75%, #ff7a1a 100%);
   --add: #4cc38a;
   --remove: #f0605a;
   --syn-keyword: #82a9e8;
@@ -99,6 +100,42 @@
     }
     50% {
       opacity: 0.55;
+    }
+  }
+  --animate-effort-burst: effort-burst 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  @keyframes effort-burst {
+    0% {
+      opacity: 1;
+      transform: translate(0, 0) scale(0.4);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(var(--burst-x), var(--burst-y)) scale(1);
+    }
+  }
+  --animate-effort-flow: effort-flow 7s linear infinite;
+  @keyframes effort-flow {
+    from {
+      background-position: 0% 0;
+    }
+    to {
+      background-position: 200% 0;
+    }
+  }
+  --animate-effort-twinkle: effort-twinkle 3.2s ease-in-out infinite;
+  @keyframes effort-twinkle {
+    0% {
+      opacity: 0;
+      transform: translateX(14px) scale(0.5);
+    }
+    30%,
+    60% {
+      opacity: 0.95;
+      transform: translateX(0) scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: translateX(-16px) scale(0.6);
     }
   }
   --animate-shimmer: shimmer var(--shimmer-duration, 1.7s) linear infinite;

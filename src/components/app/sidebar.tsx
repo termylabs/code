@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils"
 import type { Project, ThreadSummary } from "@/services/Database"
 import { AgentIcon } from "./agent-icon"
 import { Kbd, Led, relativeTime } from "./primitives"
+import { ResizeHandle, usePanelWidth } from "./resize-handle"
 
 /** The thread's agent, with a badge in the corner while it's starting, working or failed. */
 export const AgentSlot = ({ agent, status, dim }: { agent: AgentId; status: SessionStatus | undefined; dim: boolean }) => (
@@ -156,6 +157,7 @@ export const Sidebar = ({ onSearch }: { onSearch: () => void }) => {
   const threads = useWorkspaceState((state) => state.threads)
   const sessions = useWorkspaceState((state) => state.sessions)
   const { threadId } = useParams({ strict: false })
+  const { width, resize, reset } = usePanelWidth("sidebar.width", { initial: 264, min: 200, max: 420 })
 
   const statuses = useMemo(
     () => Object.fromEntries(Object.values(sessions).map((session) => [session.id, session.status])),
@@ -179,7 +181,8 @@ export const Sidebar = ({ onSearch }: { onSearch: () => void }) => {
   }
 
   return (
-    <aside className="bg-panel flex h-full w-[264px] shrink-0 flex-col px-2.5 pb-3">
+    <aside style={{ width }} className="bg-panel relative flex h-full shrink-0 flex-col px-2.5 pb-3">
+      <ResizeHandle edge="right" width={width} onResize={resize} onReset={reset} />
       <div data-tauri-drag-region className="h-[52px] shrink-0" />
 
       <nav className="flex flex-col gap-1.5 pt-1 pb-5">

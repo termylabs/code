@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 
-export const AgentId = Schema.Literals(["claude", "codex", "cursor"])
+export const AgentId = Schema.Literals(["claude", "codex", "cursor", "grok", "antigravity", "opencode"])
 export type AgentId = typeof AgentId.Type
 
 export interface AgentSpec {
@@ -33,6 +33,29 @@ export const agents: Record<AgentId, AgentSpec> = {
     command: "agent",
     args: ["acp"],
     loginHint: "Run `agent login` in a terminal, or set CURSOR_API_KEY.",
+  },
+  grok: {
+    id: "grok",
+    name: "Grok Build",
+    command: "grok",
+    // Update checks would write to stdout, which is the ACP channel.
+    args: ["--no-auto-update", "agent", "stdio"],
+    loginHint: "Run `grok` in a terminal and sign in, or set XAI_API_KEY.",
+  },
+  // The Antigravity CLI (`agy`) has no ACP mode yet, so this runs Gemini CLI's.
+  antigravity: {
+    id: "antigravity",
+    name: "Antigravity",
+    command: "npx",
+    args: ["-y", "@google/gemini-cli", "--acp"],
+    loginHint: "Run `npx @google/gemini-cli` in a terminal and sign in with Google, or set GEMINI_API_KEY.",
+  },
+  opencode: {
+    id: "opencode",
+    name: "OpenCode",
+    command: "opencode",
+    args: ["acp"],
+    loginHint: "Run `opencode auth login` in a terminal.",
   },
 }
 

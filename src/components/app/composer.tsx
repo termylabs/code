@@ -1,8 +1,31 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview"
-import { ArrowUpIcon, CheckIcon, ChevronDownIcon, PlusIcon, RotateCwIcon, SquareIcon, XIcon } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  ArrowUpIcon,
+  AtSignIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ImageIcon,
+  type LucideIcon,
+  PlusIcon,
+  RotateCwIcon,
+  ScrollTextIcon,
+  SquareIcon,
+  SquareSlashIcon,
+  XIcon,
+} from "lucide-react"
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react"
 import { Shimmer } from "@/components/shimmer/components/shimmer"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { agents } from "@/domain/agents"
 import { activeQuery, type Mention, type Skill } from "@/domain/mentions"
@@ -99,6 +122,129 @@ const ModeMenu = ({ session }: { session: Session }) => {
             </span>
           </DropdownMenuItem>
         ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/* Notra's Claude plus menu, with the items Termy can actually do. */
+const MENU_SURFACE_CLASS =
+  "rounded-2xl bg-[#1e1e21]/97 p-1.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1px_rgb(255_255_255/0.07),0_16px_40px_rgb(0_0_0/0.5)] ring-0 backdrop-blur-xl"
+
+const MENU_ITEM_CLASS =
+  "text-text focus:bg-white/6 focus:text-text not-data-[variant=destructive]:focus:**:text-text data-highlighted:bg-white/6 h-8 cursor-pointer gap-2.5 rounded-lg px-2.5 py-0 text-[13px] leading-5 [&_svg:not([class*='size-'])]:size-4 [&_svg]:text-text-2"
+
+const SUB_TRIGGER_CLASS = cn(
+  MENU_ITEM_CLASS,
+  "data-open:bg-white/6 data-open:text-text data-popup-open:bg-white/6 data-popup-open:text-text [&>svg:last-child]:text-text-3 [&>svg:last-child]:size-3.5",
+)
+
+const SEPARATOR_CLASS = "bg-line mx-2 my-1.5"
+
+const ICON_STROKE = 1.5
+
+const PlusSubmenu = ({
+  icon: Icon,
+  label,
+  rows,
+  empty,
+  onSelect,
+}: {
+  icon: LucideIcon
+  label: string
+  rows: ReadonlyArray<PickerRow>
+  empty: string
+  onSelect: (row: PickerRow) => void
+}) => (
+  <DropdownMenuSub>
+    <DropdownMenuSubTrigger className={SUB_TRIGGER_CLASS} openOnHover>
+      <Icon strokeWidth={ICON_STROKE} />
+      {label}
+    </DropdownMenuSubTrigger>
+    <DropdownMenuSubContent sideOffset={6} className={cn("max-h-80 max-w-72 min-w-44", MENU_SURFACE_CLASS)}>
+      {rows.length === 0 ? (
+        <p className="text-text-3 px-2.5 py-1.5 text-xs">{empty}</p>
+      ) : (
+        rows.map((row) => (
+          <DropdownMenuItem key={row.key} className={MENU_ITEM_CLASS} onClick={() => onSelect(row)}>
+            <span className="truncate">{row.title}</span>
+          </DropdownMenuItem>
+        ))
+      )}
+    </DropdownMenuSubContent>
+  </DropdownMenuSub>
+)
+
+const PlusMenu = ({
+  session,
+  acceptsImages,
+  input,
+  onAddImages,
+  onInsert,
+}: {
+  session: Session
+  acceptsImages: boolean
+  /** Gets focus back when the menu closes, so typing carries on. */
+  input: RefObject<HTMLTextAreaElement | null>
+  onAddImages: () => void
+  onInsert: (text: string, mention?: Mention) => void
+}) => {
+  const workspace = useWorkspace()
+  const run = useRun()
+  const [skills, setSkills] = useState<ReadonlyArray<Skill> | null>(null)
+  const skillRows = useMemo(() => pickerRows("skill", "", session.cwd, [], skills ?? [], []), [session.cwd, skills])
+  const commandRows = useMemo(
+    () => pickerRows("command", "", session.cwd, [], [], session.commands ?? []),
+    [session.cwd, session.commands],
+  )
+
+  return (
+    <DropdownMenu
+      modal={false}
+      onOpenChange={(open) => {
+        if (open) void run(workspace.listSkills(session.agentId, session.cwd)).then((list) => list && setSkills(list))
+      }}
+    >
+      <DropdownMenuTrigger
+        aria-label="Add images, files, skills and more"
+        className="text-text-2 hover:text-text aria-expanded:text-text flex size-7 items-center justify-center rounded-lg transition-colors hover:bg-white/5 aria-expanded:bg-white/5 focus-visible:ring-2 focus-visible:ring-amber/35"
+      >
+        <PlusIcon className="size-4" strokeWidth={ICON_STROKE} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        sideOffset={8}
+        finalFocus={input}
+        className={cn("w-57", MENU_SURFACE_CLASS)}
+      >
+        {acceptsImages && (
+          <DropdownMenuItem className={MENU_ITEM_CLASS} onClick={onAddImages}>
+            <ImageIcon strokeWidth={ICON_STROKE} />
+            Add images
+            <DropdownMenuShortcut className="text-text-3 tracking-normal">⌘U</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem className={MENU_ITEM_CLASS} onClick={() => onInsert("@")}>
+          <AtSignIcon strokeWidth={ICON_STROKE} />
+          Mention a file
+          <DropdownMenuShortcut className="text-text-3 tracking-normal">@</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator className={SEPARATOR_CLASS} />
+        <PlusSubmenu
+          icon={ScrollTextIcon}
+          label="Skills"
+          rows={skillRows}
+          empty={skills === null ? "Loading skills" : "No skills found"}
+          onSelect={(row) => onInsert(`${row.insert} `, row.mention)}
+        />
+        <PlusSubmenu
+          icon={SquareSlashIcon}
+          label="Commands"
+          rows={commandRows}
+          empty={session.connected ? "No commands" : "Waiting for the agent"}
+          onSelect={(row) => onInsert(`${row.insert} `)}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -280,6 +426,19 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
     }
   }, [acceptsImages, run, workspace])
 
+  // ⌘U attaches images, like the plus menu says.
+  useEffect(() => {
+    if (!acceptsImages) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "u") {
+        event.preventDefault()
+        void run(workspace.loadImages()).then(addImages)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [acceptsImages, run, workspace])
+
   useEffect(() => {
     if (!working || !session) return
     const onKey = (event: KeyboardEvent) => {
@@ -334,6 +493,17 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
     if (added) setMentions((current) => [...current.filter((mention) => mention.token !== added.token), added])
     setCaret(before.length)
     requestAnimationFrame(() => input.current?.setSelectionRange(before.length, before.length))
+  }
+
+  /** Puts a plus-menu pick at the caret as if it were typed, so `@` opens the file picker. */
+  const insert = (value: string, mention?: Mention) => {
+    const before = text.slice(0, caret)
+    const head = before + (before === "" || /\s$/.test(before) ? "" : " ") + value
+    setText(head + text.slice(caret))
+    if (mention) setMentions((current) => [...current.filter((item) => item.token !== mention.token), mention])
+    setCaret(head.length)
+    setDismissedAt(null)
+    requestAnimationFrame(() => input.current?.setSelectionRange(head.length, head.length))
   }
 
   const submit = () => {
@@ -430,17 +600,18 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
       />
 
       <div className="flex h-12 items-center gap-1 px-2.5">
-        {acceptsImages && (
-          <button
-            type="button"
-            aria-label="Attach images"
-            title="Attach images"
-            onClick={() => void run(workspace.loadImages()).then(addImages)}
-            className="text-text-2 hover:text-text flex size-7 items-center justify-center rounded-lg transition-colors hover:bg-white/5"
-          >
-            <PlusIcon className="size-4" />
-          </button>
+        {session && (
+          <PlusMenu
+            session={session}
+            acceptsImages={acceptsImages}
+            input={input}
+            onAddImages={() => void run(workspace.loadImages()).then(addImages)}
+            onInsert={insert}
+          />
         )}
+        {session && <ModeMenu session={session} />}
+        <span className="flex-1" />
+        {session?.usage && <ContextRing usage={session.usage} />}
         {session && (
           <ModelEffortSelector
             models={choicesOf(model)}
@@ -452,9 +623,6 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
             disabled={!session.connected}
           />
         )}
-        {session && <ModeMenu session={session} />}
-        <span className="flex-1" />
-        {session?.usage && <ContextRing usage={session.usage} />}
         {working ? (
           <button
             type="button"

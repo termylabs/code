@@ -47,23 +47,24 @@ pub struct Skill {
     scope: &'static str,
 }
 
-/// Skill folders for an agent, most specific first. Claude only reads its own
-/// folders; Codex and Cursor also read the shared `.agents` folders.
+/// Skill folders for an agent, most specific first. Each agent reads its own
+/// project and home folders; all but Claude also read the shared `.agents`
+/// folders, and OpenCode reads Claude's too.
 fn skill_roots(agent: &str, cwd: &Path, home: &Path) -> Vec<(PathBuf, &'static str)> {
-    let own = match agent {
-        "claude" => ".claude",
-        "codex" => ".codex",
-        "cursor" => ".cursor",
+    let (project, user, shared): (&str, &str, &[&str]) = match agent {
+        "claude" => (".claude", ".claude", &[]),
+        "codex" => (".codex", ".codex", &[".agents"]),
+        "cursor" => (".cursor", ".cursor", &[".agents"]),
+        "grok" => (".grok", ".grok", &[".agents"]),
+        // Runs Gemini CLI, so it reads Gemini's folders.
+        "antigravity" => (".gemini", ".gemini", &[".agents"]),
+        "opencode" => (".opencode", ".config/opencode", &[".claude", ".agents"]),
         _ => return Vec::new(),
     };
-    let mut roots = vec![(cwd.join(own).join("skills"), "project")];
-    if agent != "claude" {
-        roots.push((cwd.join(".agents/skills"), "project"));
-    }
-    roots.push((home.join(own).join("skills"), "user"));
-    if agent != "claude" {
-        roots.push((home.join(".agents/skills"), "user"));
-    }
+    let mut roots = vec![(cwd.join(project).join("skills"), "project")];
+    roots.extend(shared.iter().map(|dir| (cwd.join(dir).join("skills"), "project")));
+    roots.push((home.join(user).join("skills"), "user"));
+    roots.extend(shared.iter().map(|dir| (home.join(dir).join("skills"), "user")));
     roots
 }
 

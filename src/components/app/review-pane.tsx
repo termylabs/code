@@ -4,9 +4,10 @@ import type { CSSProperties, ReactNode } from "react"
 import { type FileChange, totals } from "@/domain/changes"
 import { relativePath } from "@/domain/timeline"
 import { Diffstat } from "./primitives"
+import { ResizeHandle, usePanelWidth } from "./resize-handle"
 
 /** Pierre's dark theme, seated on the window's instrument black. */
-const diffStyle = {
+export const diffStyle = {
   "--diffs-bg": "var(--bg)",
   "--diffs-font-family": "'Geist Mono Variable', ui-monospace, monospace",
   "--diffs-header-font-family": "'Geist Variable', system-ui, sans-serif",
@@ -60,30 +61,34 @@ export const ReviewPane = ({
   children?: ReactNode
 }) => {
   const sum = totals(changes)
+  const { width, resize, reset } = usePanelWidth("panel.width", { initial: 548, min: 360, max: 960 })
   return (
-    <aside className="surface animate-in fade-in-0 slide-in-from-right-2 flex h-full w-[548px] shrink-0 flex-col overflow-hidden rounded-xl duration-200">
-      <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-3 pr-2.5 pl-2.5">
-        {tabs ?? <span className="text-text pl-1.5 text-[13px] font-semibold tracking-[-0.01em]">Changes</span>}
-        <span className="flex-1" />
-        {sum.files > 0 && (
-          <>
-            <span className="text-text-3 text-xs">
-              {sum.files} {sum.files === 1 ? "file" : "files"}
-            </span>
-            <Diffstat additions={sum.additions} deletions={sum.deletions} />
-          </>
-        )}
-        <button
-          type="button"
-          aria-label="Close panel"
-          onClick={onClose}
-          className="text-text-3 hover:text-text hover:bg-hover flex size-7 items-center justify-center rounded-lg"
-        >
-          <XIcon className="size-3.5" />
-        </button>
-      </header>
-      <div className="flex min-h-0 flex-1 flex-col">{children ?? <ChangeList changes={changes} cwd={cwd} />}</div>
-    </aside>
+    <div style={{ width }} className="relative flex h-full shrink-0">
+      <ResizeHandle edge="left" width={width} onResize={resize} onReset={reset} />
+      <aside className="surface animate-in fade-in-0 slide-in-from-right-2 flex h-full w-full flex-col overflow-hidden rounded-xl duration-200">
+        <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-3 pr-2.5 pl-2.5">
+          {tabs ?? <span className="text-text pl-1.5 text-[13px] font-semibold tracking-[-0.01em]">Changes</span>}
+          <span className="flex-1" />
+          {sum.files > 0 && (
+            <>
+              <span className="text-text-3 text-xs">
+                {sum.files} {sum.files === 1 ? "file" : "files"}
+              </span>
+              <Diffstat additions={sum.additions} deletions={sum.deletions} />
+            </>
+          )}
+          <button
+            type="button"
+            aria-label="Close panel"
+            onClick={onClose}
+            className="text-text-3 hover:text-text hover:bg-hover flex size-7 items-center justify-center rounded-lg"
+          >
+            <XIcon className="size-3.5" />
+          </button>
+        </header>
+        <div className="flex min-h-0 flex-1 flex-col">{children ?? <ChangeList changes={changes} cwd={cwd} />}</div>
+      </aside>
+    </div>
   )
 }
 

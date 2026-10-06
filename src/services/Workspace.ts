@@ -28,6 +28,7 @@ import {
 } from "@/domain/cursor"
 import {
   applyUpdate,
+  configOption,
   type ImageAttachment,
   isHistory,
   makeSession,
@@ -78,6 +79,27 @@ export type Tab = typeof Tab.Type
 const decodeTabs = Schema.decodeUnknownOption(Schema.Array(Tab))
 
 const TABS_KEY = "termy.tabs.v2"
+
+/** The permission mode last picked for each agent, so new and reopened threads start in it. */
+const modeKey = (agentId: AgentId) => `termy.mode.${agentId}`
+
+const rememberMode = (agentId: AgentId, modeId: string) =>
+  Effect.sync(() => {
+    try {
+      localStorage.setItem(modeKey(agentId), modeId)
+    } catch {
+      // Threads just start in the agent's default mode.
+    }
+  })
+
+const rememberedMode = (agentId: AgentId) =>
+  Effect.sync(() => {
+    try {
+      return localStorage.getItem(modeKey(agentId))
+    } catch {
+      return null
+    }
+  })
 
 export interface QuestionAnswer {
   readonly questionId: string
@@ -361,6 +383,31 @@ export class Workspace extends Context.Service<
         onExtensionNotification: onExtensionNotification(id),
       })
 
+      /**
+       * Agents start in their default mode; switch to the one last picked for this agent if it
+       * offers it. A failure here leaves the default rather than failing the connection.
+       */
+      const restoreMode = (id: string, connection: AcpConnection, acpSessionId: string) =>
+        Effect.gen(function* () {
+          const session = yield* getSession(id)
+          const wanted = yield* rememberedMode(session.agentId)
+          if (!wanted) return
+          const option = configOption(session, "mode")
+          if (option?.type === "select") {
+            const offered = option.options.flatMap((entry) => ("group" in entry ? entry.options : [entry]))
+            if (option.currentValue === wanted || !offered.some((choice) => choice.value === wanted)) return
+            const configOptions = yield* connection.setConfigOption(acpSessionId, option.id, wanted)
+            yield* updateSession(id, (current) => ({ ...current, configOptions }))
+          } else if (session.modes) {
+            const { currentModeId, availableModes } = session.modes
+            if (currentModeId === wanted || !availableModes.some((mode) => mode.id === wanted)) return
+            yield* connection.setMode(acpSessionId, wanted)
+            yield* updateSession(id, (current) =>
+              current.modes ? { ...current, modes: { ...current.modes, currentModeId: wanted } } : current,
+            )
+          }
+        }).pipe(Effect.ignore)
+
       /** Spawns the agent, then resumes, replays or starts the ACP session. */
       const establish = (id: string, handle: Live) =>
         Effect.gen(function* () {
@@ -434,6 +481,7 @@ export class Workspace extends Context.Service<
               ? [...current.items, { _tag: "Notice", id: crypto.randomUUID(), text: notice, tone: "info" }]
               : current.items,
           }))
+          yield* restoreMode(id, connection, acpSessionId)
           return connection
         }).pipe(
           Scope.provide(handle.scope),
@@ -695,6 +743,8 @@ export class Workspace extends Context.Service<
 
       const setConfigOption = Effect.fn("Workspace.setConfigOption")(
         function* (id: string, configId: string, value: string) {
+          const session = yield* getSession(id)
+          if (configOption(session, "mode")?.id === configId) yield* rememberMode(session.agentId, value)
           // Optimistic, so the slider and menus respond instantly.
           yield* updateSession(id, (session) => ({
             ...session,
@@ -711,6 +761,7 @@ export class Workspace extends Context.Service<
 
       const setMode = Effect.fn("Workspace.setMode")(
         function* (id: string, modeId: string) {
+          yield* rememberMode((yield* getSession(id)).agentId, modeId)
           yield* updateSession(id, (session) =>
             session.modes ? { ...session, modes: { ...session.modes, currentModeId: modeId } } : session,
           )

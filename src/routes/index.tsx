@@ -42,15 +42,18 @@ const AgentSwitch = ({ value, onChange }: { value: AgentId; onChange: (agent: Ag
         type="button"
         onClick={() => onChange(agent.id)}
         aria-pressed={agent.id === value}
+        aria-label={agent.name}
+        title={agent.name}
         className={cn(
-          "flex h-7 items-center gap-2 rounded-lg px-3 transition-[background-color,color] duration-150",
+          "flex h-7 items-center gap-2 rounded-lg transition-[background-color,color] duration-150",
           agent.id === value
-            ? "bg-hover text-text shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_1px_2px_rgb(0_0_0/0.4)]"
-            : "text-text-2 hover:text-text",
+            ? "bg-hover text-text px-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_1px_2px_rgb(0_0_0/0.4)]"
+            : "text-text-2 hover:text-text px-2",
         )}
       >
         <AgentIcon agent={agent.id} className="size-3.5" />
-        <span className="text-xs font-medium">{agent.name}</span>
+        {/* Only the chosen agent is named, so all six fit beside the project picker. */}
+        {agent.id === value && <span className="text-xs font-medium">{agent.name}</span>}
       </button>
     ))}
   </div>

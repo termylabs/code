@@ -20,18 +20,8 @@ const ActionButton = ({ label, onClick, children }: { label: string; onClick?: (
   </Tooltip>
 )
 
-export const MessageActions = ({
-  text,
-  onRetry,
-  className,
-  children,
-}: {
-  text: string
-  onRetry?: () => void
-  className?: string
-  /** More actions after copy and retry. */
-  children?: ReactNode
-}) => {
+/** Copies text to the clipboard; `copied` stays true briefly afterwards for a check mark. */
+export const useCopy = (text: string) => {
   const [copied, setCopied] = useState(false)
   const reset = useRef<number | undefined>(undefined)
   useEffect(() => () => window.clearTimeout(reset.current), [])
@@ -46,6 +36,23 @@ export const MessageActions = ({
     window.clearTimeout(reset.current)
     reset.current = window.setTimeout(() => setCopied(false), COPIED_RESET_MS)
   }
+
+  return { copied, copy }
+}
+
+export const MessageActions = ({
+  text,
+  onRetry,
+  className,
+  children,
+}: {
+  text: string
+  onRetry?: () => void
+  className?: string
+  /** More actions after copy and retry. */
+  children?: ReactNode
+}) => {
+  const { copied, copy } = useCopy(text)
 
   return (
     <div className={cn("-ml-1.5 flex items-center gap-0.5", className)}>

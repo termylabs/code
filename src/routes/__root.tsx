@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { CommandPalette } from "@/components/app/command-palette"
 import { Sidebar } from "@/components/app/sidebar"
 import { TabStrip } from "@/components/app/tab-strip"
+import { TerminalTabs } from "@/components/app/terminal-tabs"
 
 const RootLayout = () => {
   const [searching, setSearching] = useState(false)
@@ -25,6 +26,7 @@ const RootLayout = () => {
         <TabStrip />
         <div className="flex min-h-0 flex-1 gap-2">
           <Outlet />
+          <TerminalTabs />
         </div>
       </main>
       <CommandPalette open={searching} onOpenChange={setSearching} />

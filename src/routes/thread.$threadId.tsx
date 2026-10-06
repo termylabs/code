@@ -6,7 +6,7 @@ import { ForkMenu } from "@/components/app/fork-menu"
 import { FileTree } from "@/components/app/file-tree"
 import { Diffstat } from "@/components/app/primitives"
 import { ReviewPane } from "@/components/app/review-pane"
-import { TerminalView } from "@/components/app/terminal-view"
+import { PanelTerminals } from "@/components/app/panel-terminals"
 import { ThreadHeader } from "@/components/app/thread-header"
 import { Timeline } from "@/components/app/timeline"
 import { collectChanges, totals } from "@/domain/changes"
@@ -18,6 +18,16 @@ import { cn } from "@/lib/utils"
 type Panel = "changes" | "files" | "terminal"
 
 const panelNames: Record<Panel, string> = { changes: "Review", files: "Files", terminal: "Terminal" }
+
+const PANEL_OPEN_KEY = "panel.open"
+
+const storedPanelOpen = () => {
+  try {
+    return localStorage.getItem(PANEL_OPEN_KEY) !== "false"
+  } catch {
+    return true
+  }
+}
 
 const PanelTabs = ({ value, onChange }: { value: Panel; onChange: (tab: Panel) => void }) => (
   <div className="bg-panel flex items-center gap-0.5 rounded-[9px] p-0.5 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.04)]">
@@ -45,7 +55,7 @@ const ThreadView = () => {
   const workspace = useWorkspace()
   const run = useRun()
   const session = useWorkspaceState((state) => state.sessions[threadId])
-  const [reviewOpen, setReviewOpen] = useState(true)
+  const [reviewOpen, setReviewOpen] = useState(storedPanelOpen)
   const [tab, setTab] = useState<Panel>("changes")
   // The shell survives tab switches; it starts the first time the tab opens.
   const [terminalStarted, setTerminalStarted] = useState(false)
@@ -54,6 +64,26 @@ const ThreadView = () => {
     setTerminalStarted(false)
     setTab("changes")
   }, [threadId])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PANEL_OPEN_KEY, String(reviewOpen))
+    } catch {
+      // Still toggles for this session.
+    }
+  }, [reviewOpen])
+
+  useEffect(() => {
+    // ⌥ changes `key` on macOS, so match the physical key.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey && event.altKey && event.code === "KeyB") {
+        event.preventDefault()
+        setReviewOpen((open) => !open)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
 
   useEffect(() => {
     void run(workspace.open(threadId))
@@ -80,6 +110,7 @@ const ThreadView = () => {
             type="button"
             onClick={() => setReviewOpen(!reviewOpen)}
             aria-pressed={reviewOpen}
+            title={reviewOpen ? "Hide panel (⌥⌘B)" : "Show panel (⌥⌘B)"}
             className={cn(
               "flex h-[26px] items-center gap-2 rounded-[7px] px-2.5 transition-colors",
               reviewOpen ? "bg-raised text-text" : "text-text-2 hover:bg-raised/60",
@@ -117,7 +148,12 @@ const ThreadView = () => {
         >
           {terminalStarted && (
             <div className={cn("min-h-0 flex-1 flex-col", tab === "terminal" ? "flex" : "hidden")}>
-              <TerminalView key={session.id} cwd={session.cwd} active={tab === "terminal"} />
+              <PanelTerminals
+                key={session.id}
+                cwd={session.cwd}
+                name={session.cwd.split("/").filter(Boolean).at(-1) ?? session.cwd}
+                active={tab === "terminal"}
+              />
             </div>
           )}
           {tab === "changes" && <ReviewPane.Changes changes={changes} cwd={session.cwd} />}
