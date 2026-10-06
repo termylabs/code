@@ -1,6 +1,6 @@
 # Termy Code
 
-Termy Code is a native desktop app for working with AI coding agents. Instead of running Claude Code, Codex and Cursor each in its own terminal tab, you open a project once and talk to any of them from the same window. Each conversation is saved as a thread you can search and return to later.
+Termy Code is a desktop app for working with AI coding agents. Instead of running Claude Code, Codex and Cursor each in its own terminal tab, you open a project once and talk to any of them from the same window. Each conversation is saved as a thread you can search and return to later.
 
 When an agent edits files, the changes show up as diffs you can review before moving on. When it runs commands, they run in a real terminal built on [Termy](https://github.com/lassejlv/termy)'s PTY, and you can see the output as it happens. A terminal panel is also there for your own commands.
 
