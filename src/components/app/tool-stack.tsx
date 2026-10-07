@@ -1,4 +1,4 @@
-import { ChevronRightIcon } from "lucide-react"
+import { ChevronRightIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Shimmer } from "@/components/shimmer/components/shimmer"
 import { collectChanges, totals } from "@/domain/changes"
@@ -28,7 +28,7 @@ const OutputTail = ({ text, lines, className }: { text: string; lines: number; c
   return (
     <div
       className={cn(
-        "flex flex-col rounded-lg bg-white/[0.025] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.04)]",
+        "flex flex-col rounded-lg bg-white/[0.025] px-3 py-2.5 shadow-hairline",
         className,
       )}
     >
@@ -36,7 +36,7 @@ const OutputTail = ({ text, lines, className }: { text: string; lines: number; c
         <span
           key={index}
           className={cn(
-            "selectable truncate font-mono text-[11.5px] leading-[18px] whitespace-pre",
+            "selectable truncate text-xs leading-[18px] whitespace-pre",
             index === tail.length - 1 ? "text-text-2" : "text-text-3",
           )}
         >
@@ -55,13 +55,13 @@ const ToolRow = ({ tool, cwd }: { tool: ToolItem; cwd: string }) => {
   return (
     <div className="flex flex-col gap-1.5 pb-1">
       <div className="flex h-7 items-center gap-2.5 pl-[3px]">
-        <span className="text-text-2 shrink-0 text-[13px]">{verbFor(tool, false)}</span>
-        <span className="text-text min-w-0 truncate font-mono text-xs">
+        <span className="text-text-2 shrink-0 text-ui">{verbFor(tool, false)}</span>
+        <span className="text-text min-w-0 truncate text-xs">
           {path && (tool.kind === "read" || tool.kind === "edit") ? relativePath(path, cwd) : tool.title}
         </span>
         <span className="flex-1" />
         {tool.status === "failed" ? (
-          <span className="text-remove shrink-0 font-mono text-[11px]">
+          <span className="text-remove shrink-0 text-2xs tabular-nums">
             {output.exitCode !== null ? `exit ${output.exitCode}` : "failed"}
           </span>
         ) : (
@@ -93,12 +93,12 @@ const Summary = ({
       className="group/summary flex h-[30px] min-w-0 flex-1 items-center gap-1.5 text-left"
     >
       {parts.map((part, index) => (
-        <span key={index} className="flex shrink-0 items-center gap-1.5 text-[13px]">
+        <span key={index} className="flex shrink-0 items-center gap-1.5 text-ui">
           <span className={index === 0 ? "text-text-2" : "text-text-3"}>{part.lead}</span>
           {part.object && <span className={index === 0 ? "text-text" : "text-text-3"}>{part.object}</span>}
         </span>
       ))}
-      {failed > 0 && <span className="text-remove shrink-0 text-[13px]">, {failed} failed</span>}
+      {failed > 0 && <span className="text-remove shrink-0 text-ui">, {failed} failed</span>}
       <ChevronRightIcon
         className={cn(
           "text-text-3 group-hover/summary:text-text-2 size-3.5 shrink-0 transition-transform duration-200",
@@ -121,12 +121,12 @@ const LiveStep = ({ tool, cwd }: { tool: ToolItem; cwd: string }) => {
           <Led className="size-[7px]" />
         </span>
         <Shimmer
-          className="text-amber shrink-0 text-[13px] font-medium"
+          className="text-amber shrink-0 text-ui font-medium"
           style={{ "--shimmer-highlight": "#fff3d6" } as React.CSSProperties}
         >
           {verbFor(tool, true)}
         </Shimmer>
-        <span className="text-text min-w-0 truncate font-mono text-xs">
+        <span className="text-text min-w-0 truncate text-xs">
           {path && tool.kind !== "execute" ? relativePath(path, cwd) : tool.title}
         </span>
       </div>

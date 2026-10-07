@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router"
-import { FolderPlusIcon, SearchIcon, SquarePenIcon } from "lucide-react"
+import { FolderPlusIcon, MagnifyingGlassIcon, PencilSquareIcon } from "@heroicons/react/24/outline"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import type { AgentId } from "@/domain/agents"
@@ -104,7 +104,7 @@ export const CommandPalette = ({ open, onOpenChange }: { open: boolean; onOpenCh
           entries: [
             {
               key: "new-thread",
-              icon: <SquarePenIcon className="text-text-2 size-3.5" />,
+              icon: <PencilSquareIcon className="text-text-2 size-3.5" />,
               title: "New thread",
               meta: "⌘N",
               run: () => {
@@ -139,11 +139,11 @@ export const CommandPalette = ({ open, onOpenChange }: { open: boolean; onOpenCh
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-[18%] max-w-[560px] translate-y-0 gap-0 overflow-hidden rounded-2xl bg-[#1e1e21] p-0 shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_0_0_1px_rgb(255_255_255/0.07),0_24px_60px_rgb(0_0_0/0.6)] ring-0 sm:max-w-[560px]"
+        className="top-[18%] max-w-[560px] translate-y-0 gap-0 overflow-hidden rounded-2xl bg-popover p-0 shadow-dialog ring-0 sm:max-w-[560px]"
       >
         <DialogTitle className="sr-only">Search</DialogTitle>
         <div className="flex h-12 items-center gap-2.5 border-b border-white/6 px-4">
-          <SearchIcon className="text-text-3 size-4 shrink-0" />
+          <MagnifyingGlassIcon className="text-text-3 size-4 shrink-0" />
           <input
             autoFocus
             value={query}
@@ -168,7 +168,7 @@ export const CommandPalette = ({ open, onOpenChange }: { open: boolean; onOpenCh
         <div ref={list} className="flex max-h-[min(420px,60vh)] flex-col overflow-y-auto p-1.5">
           {sections.map((section) => (
             <div key={section.label} className="flex flex-col pb-1">
-              <span className="text-text-3 px-2.5 pt-2 pb-1.5 text-[11px] font-medium">{section.label}</span>
+              <span className="text-text-3 px-2.5 pt-2 pb-1.5 text-2xs font-medium">{section.label}</span>
               {section.entries.map((entry) => {
                 index += 1
                 const position = index
@@ -186,7 +186,7 @@ export const CommandPalette = ({ open, onOpenChange }: { open: boolean; onOpenCh
                   >
                     <span className="flex size-4 shrink-0 items-center justify-center">{entry.icon}</span>
                     <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="text-text truncate text-[13px]">
+                      <span className="text-text truncate text-ui">
                         <Highlight text={entry.title} query={query} />
                       </span>
                       {entry.detail && (
@@ -195,7 +195,7 @@ export const CommandPalette = ({ open, onOpenChange }: { open: boolean; onOpenCh
                         </span>
                       )}
                     </span>
-                    {entry.meta && <span className="text-text-3 shrink-0 font-mono text-[11px]">{entry.meta}</span>}
+                    {entry.meta && <span className="text-text-3 shrink-0 text-2xs tabular-nums">{entry.meta}</span>}
                   </button>
                 )
               })}

@@ -1,15 +1,5 @@
 import { File } from "@pierre/diffs/react"
-import {
-  CheckIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  CopyIcon,
-  FolderIcon,
-  FolderOpenIcon,
-  RotateCwIcon,
-  SearchIcon,
-  XIcon,
-} from "lucide-react"
+import { ArrowPathIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, DocumentDuplicateIcon, FolderIcon, FolderOpenIcon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline"
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { FileChange } from "@/domain/changes"
 import { rankFiles } from "@/domain/mentions"
@@ -111,7 +101,7 @@ const FolderRows = ({
               className={cn("text-text-3 -ml-1 size-3 shrink-0 transition-transform duration-150", expanded && "rotate-90")}
             />
             <Icon className="text-text-3 size-3.5 shrink-0" strokeWidth={1.6} />
-            <span className="text-text-2 min-w-0 flex-1 truncate text-[13px]">{name}</span>
+            <span className="text-text-2 min-w-0 flex-1 truncate text-ui">{name}</span>
             {hasChanges && <span className="bg-amber size-1.5 shrink-0 rounded-full" />}
           </Row>
           {expanded && (
@@ -137,7 +127,7 @@ const FolderRows = ({
           {/* Lines up with folder names past the chevron. */}
           <span className="-ml-1 size-3 shrink-0" />
           <Icon className="text-text-3 size-3.5 shrink-0" strokeWidth={1.6} />
-          <span className={cn("min-w-0 flex-1 truncate text-[13px]", isChanged ? "text-amber" : "text-text-2")}>
+          <span className={cn("min-w-0 flex-1 truncate text-ui", isChanged ? "text-amber" : "text-text-2")}>
             {name}
           </span>
         </Row>
@@ -203,12 +193,12 @@ const Preview = ({
             aria-label={copied ? "Copied" : "Copy file"}
             className="text-text-3 hover:text-text hover:bg-hover flex size-6 shrink-0 items-center justify-center rounded-md"
           >
-            {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+            {copied ? <CheckIcon className="size-3" /> : <DocumentDuplicateIcon className="size-3" />}
           </button>
         )}
       </div>
       {content === undefined ? null : !file ? (
-        <p className="text-text-3 px-4 pt-3 text-[13px]">This file can't be previewed.</p>
+        <p className="text-text-3 px-4 pt-3 text-ui">This file can't be previewed.</p>
       ) : (
         <div className="selectable min-h-0 flex-1 overflow-auto py-2">
           <File
@@ -291,7 +281,7 @@ export const FileTree = ({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/5 pr-2 pl-3.5">
-        <SearchIcon className="text-text-3 size-3.5 shrink-0" strokeWidth={1.6} />
+        <MagnifyingGlassIcon className="text-text-3 size-3.5 shrink-0" strokeWidth={1.6} />
         <input
           value={query}
           onChange={(event) => {
@@ -311,7 +301,7 @@ export const FileTree = ({
             aria-label="Clear filter"
             className="text-text-3 hover:text-text hover:bg-hover flex size-6 shrink-0 items-center justify-center rounded-md"
           >
-            <XIcon className="size-3" />
+            <XMarkIcon className="size-3" />
           </button>
         )}
         <button
@@ -320,13 +310,13 @@ export const FileTree = ({
           aria-label="Reload files"
           className="text-text-3 hover:text-text hover:bg-hover flex size-6 shrink-0 items-center justify-center rounded-md"
         >
-          <RotateCwIcon className="size-3" />
+          <ArrowPathIcon className="size-3" />
         </button>
       </div>
       <div ref={list} className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto p-1.5">
         {query.trim() ? (
           results.length === 0 ? (
-            <p className="text-text-3 px-2.5 pt-1.5 text-[13px]">No matching files</p>
+            <p className="text-text-3 px-2.5 pt-1.5 text-ui">No matching files</p>
           ) : (
             results.map((file, index) => {
               const slash = file.lastIndexOf("/")
@@ -335,7 +325,7 @@ export const FileTree = ({
               return (
                 <Row key={file} depth={0} selected={index === selected} onClick={() => setPreview(file)}>
                   <Icon className="text-text-3 size-3.5 shrink-0" strokeWidth={1.6} />
-                  <span className={cn("min-w-0 truncate text-[13px]", changed.has(file) ? "text-amber" : "text-text-2")}>
+                  <span className={cn("min-w-0 truncate text-ui", changed.has(file) ? "text-amber" : "text-text-2")}>
                     {name}
                   </span>
                   {/* Takes only the room the name leaves. */}

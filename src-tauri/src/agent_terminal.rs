@@ -1,5 +1,5 @@
 //! ACP `terminal/*` requests: commands the agent runs through the client.
-//! Each command gets its own Termy PTY. Output is kept as plain text (escape
+//! Each command gets its own Alacritty PTY. Output is kept as plain text (escape
 //! sequences removed, carriage returns applied) because it goes back to a
 //! model, and is also streamed to the webview for the live step.
 
@@ -12,11 +12,8 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
-use termy_core::{
-    pty::{Pty, PtyCommand, PtySize},
-    TerminalLaunch,
-};
+use serde_json::{json, Value};
+use crate::pty::{Pty, PtyCommand, PtySize, TerminalLaunch};
 use tokio::sync::watch;
 
 use crate::shell_env;
@@ -26,6 +23,9 @@ const COLS: u16 = 200;
 const ROWS: u16 = 50;
 const DEFAULT_OUTPUT_LIMIT: usize = 1024 * 1024;
 
+/// Where live output and exits go: `(event, data)`, e.g. to every attached window.
+pub type Sink = Arc<dyn Fn(&str, Value) + Send + Sync>;
+
 #[derive(Default)]
 pub struct AgentTerminals {
     next_id: AtomicU32,
@@ -33,6 +33,8 @@ pub struct AgentTerminals {
 }
 
 struct AgentTerminal {
+    /// The agent that created it; its terminals go when it does.
+    owner: String,
     pty: Mutex<Option<Pty>>,
     /// Shared with the PTY reader thread, which appends to it.
     output: Arc<Mutex<Output>>,
@@ -46,6 +48,7 @@ pub struct EnvVariable {
     value: String,
 }
 
+/// ACP `terminal/create` params (the session id is ignored).
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRequest {
@@ -71,19 +74,6 @@ pub struct OutputResponse {
     output: String,
     truncated: bool,
     exit_status: Option<ExitStatus>,
-}
-
-#[derive(Clone, Serialize)]
-struct OutputEvent<'a> {
-    id: &'a str,
-    text: &'a str,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ExitEvent {
-    id: String,
-    exit_status: ExitStatus,
 }
 
 fn signal_name(signal: i32) -> String {
@@ -119,146 +109,155 @@ impl AgentTerminals {
             .cloned()
             .ok_or_else(|| format!("Unknown terminal {id}"))
     }
-}
 
-#[tauri::command]
-pub fn acp_terminal_create(
-    app: AppHandle,
-    terminals: State<'_, AgentTerminals>,
-    request: CreateRequest,
-) -> Result<String, String> {
-    let id = format!("term-{}", terminals.next_id.fetch_add(1, Ordering::Relaxed) + 1);
-    // A bare command line (no separate args) runs through the shell, like the agent expects.
-    let launch = if request.args.is_empty() && request.command.contains(char::is_whitespace) {
-        TerminalLaunch::ShellCommand(request.command.clone())
-    } else {
-        TerminalLaunch::Program {
-            program: request.command.clone(),
-            args: request.args.clone(),
-        }
-    };
-    let mut environment = vec![
-        ("PATH".to_owned(), shell_env::login_path().to_owned()),
-        // Most tools respect these and skip pagers and colour, which keeps output readable.
-        ("PAGER".to_owned(), "cat".to_owned()),
-        ("GIT_PAGER".to_owned(), "cat".to_owned()),
-    ];
-    environment.extend(request.env.into_iter().map(|variable| (variable.name, variable.value)));
-
-    let output = Arc::new(Mutex::new(Output::new(
-        request.output_byte_limit.unwrap_or(DEFAULT_OUTPUT_LIMIT),
-    )));
-    let (exited_tx, exited_rx) = watch::channel(false);
-    let terminal = Arc::new(AgentTerminal {
-        pty: Mutex::new(None),
-        output: output.clone(),
-        exited: exited_rx,
-    });
-
-    let sink = output;
-    let stream_app = app.clone();
-    let stream_id = id.clone();
-    let mut sanitizer = Sanitizer::default();
-    let exit_app = app.clone();
-    let exit_id = id.clone();
-    let exit_terminal = Arc::downgrade(&terminal);
-
-    let pty = Pty::spawn(
-        &termy_core::TerminalRuntimeConfig::default(),
-        PtyCommand {
-            launch: Some(&launch),
-            working_directory: request.cwd.as_deref(),
-            environment: &environment,
-            ..PtyCommand::default()
-        },
-        PtySize::new(COLS, ROWS),
-        move |bytes| {
-            let text = sanitizer.feed(bytes);
-            if text.is_empty() {
-                return;
+    /// ACP `terminal/create`. Output streams to `sink` as `acpTerminal.output` / `acpTerminal.exit`.
+    pub fn create(&self, owner: &str, request: CreateRequest, sink: Sink) -> Result<String, String> {
+        let id = format!("term-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
+        // A bare command line (no separate args) runs through the shell, like the agent expects.
+        let launch = if request.args.is_empty() && request.command.contains(char::is_whitespace) {
+            TerminalLaunch::ShellCommand(request.command.clone())
+        } else {
+            TerminalLaunch::Program {
+                program: request.command.clone(),
+                args: request.args.clone(),
             }
-            if let Ok(mut output) = sink.lock() {
-                output.push(&text);
-            }
-            let _ = stream_app.emit("acp-terminal://output", OutputEvent { id: &stream_id, text: &text });
-        },
-        move || {
-            let _ = exited_tx.send(true);
-            if let Some(status) = exit_terminal.upgrade().and_then(|terminal| terminal.exit_status()) {
-                let _ = exit_app.emit(
-                    "acp-terminal://exit",
-                    ExitEvent {
-                        id: exit_id,
-                        exit_status: status,
-                    },
-                );
-            }
-        },
-    )
-    .map_err(|error| format!("Couldn't run `{}`: {error}", request.command))?;
+        };
+        let mut environment = vec![
+            ("PATH".to_owned(), shell_env::login_path().to_owned()),
+            // Most tools respect these and skip pagers and colour, which keeps output readable.
+            ("PAGER".to_owned(), "cat".to_owned()),
+            ("GIT_PAGER".to_owned(), "cat".to_owned()),
+        ];
+        environment.extend(request.env.into_iter().map(|variable| (variable.name, variable.value)));
 
-    *terminal.pty.lock().map_err(|_| "Terminal poisoned")? = Some(pty);
-    terminals
-        .open
-        .lock()
-        .map_err(|_| "Terminal registry poisoned")?
-        .insert(id.clone(), terminal);
-    Ok(id)
-}
+        let output = Arc::new(Mutex::new(Output::new(
+            request.output_byte_limit.unwrap_or(DEFAULT_OUTPUT_LIMIT),
+        )));
+        let (exited_tx, exited_rx) = watch::channel(false);
+        let terminal = Arc::new(AgentTerminal {
+            owner: owner.to_owned(),
+            pty: Mutex::new(None),
+            output: output.clone(),
+            exited: exited_rx,
+        });
 
-#[tauri::command]
-pub fn acp_terminal_output(terminals: State<'_, AgentTerminals>, id: String) -> Result<OutputResponse, String> {
-    let terminal = terminals.get(&id)?;
-    let (output, truncated) = terminal
-        .output
-        .lock()
-        .map_err(|_| "Terminal poisoned")?
-        .snapshot();
-    Ok(OutputResponse {
-        output,
-        truncated,
-        exit_status: terminal.exit_status(),
-    })
-}
+        let sink_output = output;
+        let stream_sink = sink.clone();
+        let stream_id = id.clone();
+        let mut sanitizer = Sanitizer::default();
+        let exit_id = id.clone();
+        let exit_terminal = Arc::downgrade(&terminal);
 
-#[tauri::command]
-pub async fn acp_terminal_wait(terminals: State<'_, AgentTerminals>, id: String) -> Result<ExitStatus, String> {
-    let terminal = terminals.get(&id)?;
-    let mut exited = terminal.exited.clone();
-    exited
-        .wait_for(|exited| *exited)
-        .await
-        .map_err(|_| "Terminal was released".to_owned())?;
-    Ok(terminal.exit_status().unwrap_or(ExitStatus {
-        exit_code: None,
-        signal: None,
-    }))
-}
+        let pty = Pty::spawn(
+            PtyCommand {
+                launch: Some(&launch),
+                working_directory: request.cwd.as_deref(),
+                environment: &environment,
+                ..PtyCommand::default()
+            },
+            PtySize::new(COLS, ROWS),
+            move |bytes| {
+                let text = sanitizer.feed(bytes);
+                if text.is_empty() {
+                    return;
+                }
+                if let Ok(mut output) = sink_output.lock() {
+                    output.push(&text);
+                }
+                stream_sink("acpTerminal.output", json!({ "id": stream_id, "text": text }));
+            },
+            move || {
+                let _ = exited_tx.send(true);
+                if let Some(status) = exit_terminal.upgrade().and_then(|terminal| terminal.exit_status()) {
+                    sink("acpTerminal.exit", json!({ "id": exit_id, "exitStatus": status }));
+                }
+            },
+        )
+        .map_err(|error| format!("Couldn't run `{}`: {error}", request.command))?;
 
-#[tauri::command]
-pub fn acp_terminal_kill(terminals: State<'_, AgentTerminals>, id: String) -> Result<(), String> {
-    let terminal = terminals.get(&id)?;
-    let pty = terminal.pty.lock().map_err(|_| "Terminal poisoned")?;
-    match pty.as_ref() {
-        Some(pty) => pty.kill().map_err(|error| error.to_string()),
-        None => Ok(()),
+        *terminal.pty.lock().map_err(|_| "Terminal poisoned")? = Some(pty);
+        self.open
+            .lock()
+            .map_err(|_| "Terminal registry poisoned")?
+            .insert(id.clone(), terminal);
+        Ok(id)
     }
-}
 
-/// Drops the PTY, which hangs up anything still running.
-#[tauri::command]
-pub fn acp_terminal_release(terminals: State<'_, AgentTerminals>, id: String) -> Result<(), String> {
-    let removed = terminals
-        .open
-        .lock()
-        .map_err(|_| "Terminal registry poisoned")?
-        .remove(&id);
-    if let Some(terminal) = removed {
-        if let Ok(mut pty) = terminal.pty.lock() {
-            pty.take();
+    /// ACP `terminal/output`.
+    pub fn output(&self, id: &str) -> Result<OutputResponse, String> {
+        let terminal = self.get(id)?;
+        let (output, truncated) = terminal.output.lock().map_err(|_| "Terminal poisoned")?.snapshot();
+        Ok(OutputResponse {
+            output,
+            truncated,
+            exit_status: terminal.exit_status(),
+        })
+    }
+
+    /// ACP `terminal/wait_for_exit`.
+    pub async fn wait(&self, id: &str) -> Result<ExitStatus, String> {
+        let terminal = self.get(id)?;
+        let mut exited = terminal.exited.clone();
+        exited
+            .wait_for(|exited| *exited)
+            .await
+            .map_err(|_| "Terminal was released".to_owned())?;
+        Ok(terminal.exit_status().unwrap_or(ExitStatus {
+            exit_code: None,
+            signal: None,
+        }))
+    }
+
+    /// ACP `terminal/kill`: stops the command but keeps its output readable.
+    pub fn kill(&self, id: &str) -> Result<(), String> {
+        let terminal = self.get(id)?;
+        let pty = terminal.pty.lock().map_err(|_| "Terminal poisoned")?;
+        match pty.as_ref() {
+            Some(pty) => pty.kill().map_err(|error| error.to_string()),
+            None => Ok(()),
         }
     }
-    Ok(())
+
+    /// ACP `terminal/release`: drops the PTY, which hangs up anything still running.
+    pub fn release(&self, id: &str) -> Result<(), String> {
+        let removed = self
+            .open
+            .lock()
+            .map_err(|_| "Terminal registry poisoned")?
+            .remove(id);
+        if let Some(terminal) = removed {
+            if let Ok(mut pty) = terminal.pty.lock() {
+                pty.take();
+            }
+        }
+        Ok(())
+    }
+
+    /// Releases every terminal an agent created, when the agent exits or is stopped.
+    pub fn release_owned_by(&self, owner: &str) {
+        let ids: Vec<String> = match self.open.lock() {
+            Ok(open) => open
+                .iter()
+                .filter(|(_, terminal)| terminal.owner == owner)
+                .map(|(id, _)| id.clone())
+                .collect(),
+            Err(_) => return,
+        };
+        for id in ids {
+            let _ = self.release(&id);
+        }
+    }
+
+    /// Every open terminal's output so far, for a window that just attached.
+    pub fn snapshot(&self) -> Vec<Value> {
+        let Ok(open) = self.open.lock() else { return Vec::new() };
+        open.iter()
+            .filter_map(|(id, terminal)| {
+                let (text, _) = terminal.output.lock().ok()?.snapshot();
+                Some(json!({ "id": id, "text": text, "exitStatus": terminal.exit_status() }))
+            })
+            .collect()
+    }
 }
 
 // ── output ───────────────────────────────────────────────────────────────
@@ -414,7 +413,6 @@ mod tests {
         );
         let environment = [("TERMY_AGENT".to_owned(), "codex".to_owned())];
         let pty = Pty::spawn(
-            &termy_core::TerminalRuntimeConfig::default(),
             PtyCommand {
                 launch: Some(&launch),
                 environment: &environment,

@@ -1,9 +1,10 @@
-import { CheckIcon, ChevronRightIcon } from "lucide-react"
+import { CheckIcon, ChevronRightIcon } from "@heroicons/react/24/outline"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Shimmer } from "@/components/shimmer/components/shimmer"
 import type { Mention } from "@/domain/mentions"
 import type { ImageAttachment, Session } from "@/domain/session"
 import { type Block, type Entry, toBlocks, toEntries } from "@/domain/timeline"
+import { useSettings } from "@/lib/settings"
 import { cn } from "@/lib/utils"
 import { Markdown } from "./markdown"
 import { MessageActions } from "./message-actions"
@@ -41,7 +42,12 @@ const useSmoothText = (text: string, live: boolean) => {
   return caughtUp ? text : text.slice(0, shown)
 }
 
-const AnswerText = ({ text, live }: { text: string; live: boolean }) => <Markdown text={useSmoothText(text, live)} />
+const AnswerText = ({ text, live }: { text: string; live: boolean }) => {
+  // Reduce motion shows streamed text as it arrives.
+  const { reduceMotion } = useSettings()
+  const smooth = useSmoothText(text, live)
+  return <Markdown text={reduceMotion ? text : smooth} />
+}
 
 const Thought = ({ text, live }: { text: string; live: boolean }) => {
   const [open, setOpen] = useState(false)
@@ -50,7 +56,7 @@ const Thought = ({ text, live }: { text: string; live: boolean }) => {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="group/thought flex h-[30px] items-center gap-1.5 self-start text-[13px]"
+        className="group/thought flex h-[30px] items-center gap-1.5 self-start text-ui"
       >
         {live ? <Shimmer className="text-text-2">Thinking</Shimmer> : <span className="text-text-3">Thought</span>}
         <ChevronRightIcon
@@ -61,7 +67,7 @@ const Thought = ({ text, live }: { text: string; live: boolean }) => {
         />
       </button>
       {open && (
-        <p className="selectable text-text-3 animate-in fade-in-0 border-line border-l pl-3 text-[13px] leading-[21px] whitespace-pre-wrap duration-200">
+        <p className="selectable text-text-3 animate-in fade-in-0 border-line border-l pl-3 text-ui leading-[21px] whitespace-pre-wrap duration-200">
           {text}
         </p>
       )}
@@ -70,7 +76,7 @@ const Thought = ({ text, live }: { text: string; live: boolean }) => {
 }
 
 const Plan = ({ entries }: { entries: Extract<Block, { _tag: "Plan" }>["entries"] }) => (
-  <div className="flex flex-col gap-1.5 rounded-xl bg-white/[0.02] px-3.5 py-3 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.04)]">
+  <div className="flex flex-col gap-1.5 rounded-xl bg-white/[0.02] px-3.5 py-3 shadow-hairline">
     {entries.map((entry, index) => (
       <div key={index} className="flex items-start gap-2.5">
         <span className="mt-[5px] flex size-3 shrink-0 items-center justify-center">
@@ -84,7 +90,7 @@ const Plan = ({ entries }: { entries: Extract<Block, { _tag: "Plan" }>["entries"
         </span>
         <span
           className={cn(
-            "text-[13px] leading-[21px]",
+            "text-ui leading-[21px]",
             entry.status === "completed" ? "text-text-3" : entry.status === "in_progress" ? "text-text" : "text-text-2",
           )}
         >
@@ -129,7 +135,7 @@ const Worked = ({
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="group/worked flex h-[30px] items-center gap-1.5 self-start text-[13px]"
+        className="group/worked flex h-[30px] items-center gap-1.5 self-start text-ui"
       >
         <span className="text-text-3 group-hover/worked:text-text-2 transition-colors">
           {durationMs === null ? "Worked" : `Worked for ${formatElapsed(Math.max(durationMs, 1000))}`}
@@ -210,7 +216,7 @@ export const Timeline = ({ session, onRetry }: TimelineProps) => {
                       src={`data:${image.mimeType};base64,${image.data}`}
                       alt={image.name}
                       title={image.name}
-                      className="max-h-48 max-w-60 rounded-xl object-cover shadow-[0_0_0_1px_rgb(255_255_255/0.08)]"
+                      className="max-h-48 max-w-60 rounded-xl object-cover shadow-outline"
                     />
                   ))}
                 </div>
@@ -255,7 +261,7 @@ export const Timeline = ({ session, onRetry }: TimelineProps) => {
                 block.tone === "error" ? "bg-remove" : "bg-text-3",
               )}
             />
-            <p className="selectable text-text-2 text-[13px] leading-[21px]">{block.text}</p>
+            <p className="selectable text-text-2 text-ui leading-[21px]">{block.text}</p>
           </div>
         )
       case "Fork":
@@ -326,7 +332,7 @@ export const Timeline = ({ session, onRetry }: TimelineProps) => {
         })}
         {working && blocks.at(-1)?._tag === "User" && (
           <div className="mt-6 flex h-[30px] items-center">
-            <Shimmer className="text-text-2 text-[13px]">Thinking</Shimmer>
+            <Shimmer className="text-text-2 text-ui">Thinking</Shimmer>
           </div>
         )}
       </div>

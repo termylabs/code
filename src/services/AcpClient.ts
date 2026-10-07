@@ -3,7 +3,6 @@ import { Context, Effect, Layer, Schema, type Scope } from "effect"
 import type { Mention } from "@/domain/mentions"
 import type { ImageAttachment } from "@/domain/session"
 import type { AgentProcess } from "./AgentHost"
-import { Tauri } from "./Tauri"
 
 export class AcpError extends Schema.TaggedError<AcpError>()("AcpError", {
   method: Schema.String,
@@ -28,7 +27,17 @@ export interface ClientHandlers {
   /** Vendor extension requests. `null` means the method isn't supported. */
   readonly onExtension: (method: string, params: Record<string, unknown>) => Effect.Effect<Record<string, unknown> | null>
   readonly onExtensionNotification: (method: string, params: Record<string, unknown>) => Effect.Effect<void>
+  /** The daemon's record that a prompt finished, sent in order with the agent's updates. */
+  readonly onTurnEnd: (end: TurnEnd) => Effect.Effect<void>
 }
+
+/** `_termy/turn_end`: how a `session/prompt` ended, whether or not a window was watching. */
+export interface TurnEnd {
+  readonly stopReason: acp.StopReason | null
+  readonly error: { readonly message: string } | null
+}
+
+const TURN_END = "_termy/turn_end"
 
 export interface Prompt {
   readonly text: string
@@ -73,27 +82,20 @@ export interface AcpConnection {
 export class AcpClient extends Context.Service<
   AcpClient,
   {
-    /** Terminals the agent opens are released when the surrounding scope closes. */
+    /**
+     * Speaks ACP over the agent's stream. An agent that was already running (attached
+     * from the daemon) has done its handshake, so its saved `initialize` result is reused.
+     * File and terminal requests never get here: the daemon answers them.
+     */
     connect(process: AgentProcess, handlers: ClientHandlers): Effect.Effect<AcpConnection, AcpError, Scope.Scope>
   }
 >()("termy/services/AcpClient") {
   static readonly layer = Layer.effect(
     AcpClient,
     Effect.gen(function* () {
-      const tauri = yield* Tauri
-
       const connect = Effect.fn("AcpClient.connect")(function* (process: AgentProcess, handlers: ClientHandlers) {
         const context = yield* Effect.context<never>()
         const run = Effect.runPromiseWith(context)
-
-        const terminals = new Set<string>()
-        const releaseTerminal = (id: string) =>
-          tauri.invoke<void>("acp_terminal_release", { id }).pipe(
-            Effect.ensuring(Effect.sync(() => terminals.delete(id))),
-          )
-        yield* Effect.addFinalizer(() =>
-          Effect.forEach([...terminals], (id) => Effect.ignore(releaseTerminal(id)), { discard: true }),
-        )
 
         const client: acp.Client = {
           sessionUpdate: (params) => run(handlers.onUpdate(params)),
@@ -103,53 +105,31 @@ export class AcpClient extends Context.Service<
               if (result === null) throw acp.RequestError.methodNotFound(method)
               return result
             }),
-          extNotification: (method, params) => run(handlers.onExtensionNotification(method, params)),
-          createTerminal: (params) =>
+          extNotification: (method, params) =>
             run(
-              tauri.invoke<string>("acp_terminal_create", {
-                request: {
-                  command: params.command,
-                  args: params.args ?? [],
-                  env: params.env ?? [],
-                  cwd: params.cwd ?? null,
-                  outputByteLimit: params.outputByteLimit ?? null,
-                },
-              }),
-            ).then((terminalId) => {
-              terminals.add(terminalId)
-              return { terminalId }
-            }),
-          terminalOutput: (params) =>
-            run(
-              tauri.invoke<acp.TerminalOutputResponse>("acp_terminal_output", { id: params.terminalId }),
+              method === TURN_END
+                ? handlers.onTurnEnd({
+                    stopReason: (params.stopReason as acp.StopReason | null | undefined) ?? null,
+                    error: (params.error as TurnEnd["error"] | undefined) ?? null,
+                  })
+                : handlers.onExtensionNotification(method, params),
             ),
-          waitForTerminalExit: (params) =>
-            run(tauri.invoke<acp.WaitForTerminalExitResponse>("acp_terminal_wait", { id: params.terminalId })),
-          killTerminal: (params) => run(tauri.invoke<void>("acp_terminal_kill", { id: params.terminalId })).then(() => ({})),
-          releaseTerminal: (params) => run(releaseTerminal(params.terminalId)).then(() => ({})),
-          readTextFile: (params) =>
-            run(
-              tauri.invoke<string>("fs_read_text", {
-                path: params.path,
-                line: params.line ?? null,
-                limit: params.limit ?? null,
-              }),
-            ).then((content) => ({ content })),
-          writeTextFile: (params) =>
-            run(tauri.invoke<void>("fs_write_text", { path: params.path, content: params.content })).then(() => ({})),
         }
 
         const connection = new acp.ClientSideConnection(() => client, process.stream)
         const call = <A>(method: string, request: () => Promise<A>) =>
           Effect.tryPromise({ try: request, catch: toAcpError(method) })
 
-        const info = yield* call("initialize", () =>
-          connection.initialize({
-            protocolVersion: acp.PROTOCOL_VERSION,
-            clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true },
-            clientInfo: { name: "termy-code", title: "Termy Code", version: "0.1.0" },
-          }),
-        )
+        const handshake = process.summary.initialize as acp.InitializeResponse | null
+        const info =
+          handshake ??
+          (yield* call("initialize", () =>
+            connection.initialize({
+              protocolVersion: acp.PROTOCOL_VERSION,
+              clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true },
+              clientInfo: { name: "termy-code", title: "Termy Code", version: "0.1.0" },
+            }),
+          ))
 
         return {
           info,
@@ -178,5 +158,5 @@ export class AcpClient extends Context.Service<
 
       return AcpClient.of({ connect })
     }),
-  ).pipe(Layer.provide(Tauri.layer))
+  )
 }

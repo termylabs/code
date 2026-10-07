@@ -1,4 +1,4 @@
-import { createRootRoute, Outlet } from "@tanstack/react-router"
+import { createRootRoute, Outlet, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { CommandPalette } from "@/components/app/command-palette"
 import { Sidebar } from "@/components/app/sidebar"
@@ -7,20 +7,24 @@ import { TerminalTabs } from "@/components/app/terminal-tabs"
 
 const RootLayout = () => {
   const [searching, setSearching] = useState(false)
+  const navigate = useNavigate()
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey && event.key.toLowerCase() === "k") {
         event.preventDefault()
         setSearching((open) => !open)
+      } else if (event.metaKey && event.key === ",") {
+        event.preventDefault()
+        void navigate({ to: "/settings" })
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [])
+  }, [navigate])
 
   return (
-    <div className="bg-panel text-text flex h-full">
+    <div className="text-text flex h-full">
       <Sidebar onSearch={() => setSearching(true)} />
       <main className="flex min-w-0 flex-1 flex-col py-2 pr-2">
         <TabStrip />

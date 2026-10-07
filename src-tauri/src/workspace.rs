@@ -12,7 +12,17 @@ pub async fn fs_read_text(
     line: Option<usize>,
     limit: Option<usize>,
 ) -> Result<String, String> {
-    let content = tokio::fs::read_to_string(&path)
+    read_text(&path, line, limit).await
+}
+
+#[tauri::command]
+pub async fn fs_write_text(path: String, content: String) -> Result<(), String> {
+    write_text(&path, &content).await
+}
+
+/// ACP `fs/read_text_file`: the whole file, or `limit` lines from 1-based `line`.
+pub async fn read_text(path: &str, line: Option<usize>, limit: Option<usize>) -> Result<String, String> {
+    let content = tokio::fs::read_to_string(path)
         .await
         .map_err(|error| format!("Couldn't read {path}: {error}"))?;
 
@@ -29,14 +39,14 @@ pub async fn fs_read_text(
     Ok(selected.join("\n"))
 }
 
-#[tauri::command]
-pub async fn fs_write_text(path: String, content: String) -> Result<(), String> {
-    if let Some(parent) = Path::new(&path).parent() {
+/// ACP `fs/write_text_file`, creating missing parent folders.
+pub async fn write_text(path: &str, content: &str) -> Result<(), String> {
+    if let Some(parent) = Path::new(path).parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|error| format!("Couldn't create {}: {error}", parent.display()))?;
     }
-    tokio::fs::write(&path, content)
+    tokio::fs::write(path, content)
         .await
         .map_err(|error| format!("Couldn't write {path}: {error}"))
 }

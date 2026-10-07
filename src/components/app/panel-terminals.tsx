@@ -1,22 +1,58 @@
 import { useNavigate } from "@tanstack/react-router"
-import { PlusIcon, SquareArrowOutUpRightIcon, XIcon } from "lucide-react"
-import { useState } from "react"
+import { ArrowTopRightOnSquareIcon, PlusIcon, XMarkIcon } from "@heroicons/react/24/outline"
+import { Schema } from "effect"
+import { useEffect, useState } from "react"
 import { useRun, useWorkspace } from "@/lib/runtime"
 import { cn } from "@/lib/utils"
 import { TerminalView } from "./terminal-view"
 
-interface Shell {
-  readonly id: number
-  readonly title: string | null
+const Shell = Schema.Struct({ id: Schema.Number, title: Schema.NullOr(Schema.String) })
+type Shell = typeof Shell.Type
+const Saved = Schema.Struct({ shells: Schema.NonEmptyArray(Shell), current: Schema.Number })
+const decodeSaved = Schema.decodeUnknownOption(Schema.fromJsonString(Saved))
+
+const storageKey = (threadId: string) => `termy.panelShells.${threadId}`
+
+/** The thread's panel shells from last time; they're still running in the daemon. */
+const restore = (threadId: string): typeof Saved.Type => {
+  try {
+    const saved = decodeSaved(localStorage.getItem(storageKey(threadId)))
+    if (saved._tag === "Some") return saved.value
+  } catch {
+    // Storage blocked: start with one shell.
+  }
+  return { shells: [{ id: 1, title: null }], current: 1 }
 }
 
-/** Several shells in the side panel, each kept alive while another one shows. */
-export const PanelTerminals = ({ cwd, name, active }: { cwd: string; name: string; active: boolean }) => {
+/** Panel shells live in the daemon under `<thread id>:panel:<n>`. */
+const shellKey = (threadId: string, id: number) => `${threadId}:panel:${id}`
+
+/** Several shells in the side panel, each kept alive while another one shows, and after the app quits. */
+export const PanelTerminals = ({
+  threadId,
+  cwd,
+  name,
+  active,
+}: {
+  threadId: string
+  cwd: string
+  name: string
+  active: boolean
+}) => {
   const workspace = useWorkspace()
   const run = useRun()
   const navigate = useNavigate()
-  const [shells, setShells] = useState<ReadonlyArray<Shell>>([{ id: 1, title: null }])
-  const [current, setCurrent] = useState(1)
+  const [initial] = useState(() => restore(threadId))
+  const [shells, setShells] = useState<ReadonlyArray<Shell>>(initial.shells)
+  const [current, setCurrent] = useState(initial.current)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey(threadId), JSON.stringify({ shells, current }))
+    } catch {
+      // The shells keep running; they just won't be listed after a restart.
+    }
+  }, [threadId, shells, current])
 
   const add = () => {
     const id = Math.max(0, ...shells.map((shell) => shell.id)) + 1
@@ -25,6 +61,7 @@ export const PanelTerminals = ({ cwd, name, active }: { cwd: string; name: strin
   }
 
   const remove = (id: number) => {
+    void run(workspace.closeShell(shellKey(threadId, id)))
     const index = shells.findIndex((shell) => shell.id === id)
     const rest = shells.filter((shell) => shell.id !== id)
     if (rest.length === 0) {
@@ -66,7 +103,7 @@ export const PanelTerminals = ({ cwd, name, active }: { cwd: string; name: strin
                 shell.id !== current && "opacity-0 group-hover/shell:opacity-100",
               )}
             >
-              <XIcon className="size-3" />
+              <XMarkIcon className="size-3" />
             </button>
           </div>
         ))}
@@ -86,12 +123,13 @@ export const PanelTerminals = ({ cwd, name, active }: { cwd: string; name: strin
           onClick={() => void openInTab()}
           className="text-text-3 hover:text-text hover:bg-hover flex size-6 shrink-0 items-center justify-center rounded-md"
         >
-          <SquareArrowOutUpRightIcon className="size-3.5" />
+          <ArrowTopRightOnSquareIcon className="size-3.5" />
         </button>
       </div>
       {shells.map((shell) => (
         <div key={shell.id} className={cn("min-h-0 flex-1 flex-col", shell.id === current ? "flex" : "hidden")}>
           <TerminalView
+            shellKey={shellKey(threadId, shell.id)}
             cwd={cwd}
             active={active && shell.id === current}
             onTitleChange={(title) =>

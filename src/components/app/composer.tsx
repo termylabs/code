@@ -1,18 +1,6 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview"
-import {
-  ArrowUpIcon,
-  AtSignIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  ImageIcon,
-  type LucideIcon,
-  PlusIcon,
-  RotateCwIcon,
-  ScrollTextIcon,
-  SquareIcon,
-  SquareSlashIcon,
-  XIcon,
-} from "lucide-react"
+import { ArrowPathIcon, ArrowUpIcon, AtSymbolIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, PhotoIcon, PlusIcon, SlashIcon, XMarkIcon } from "@heroicons/react/24/outline"
+import { StopIcon as SolidStopIcon } from "@heroicons/react/16/solid"
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react"
 import { Shimmer } from "@/components/shimmer/components/shimmer"
 import {
@@ -31,10 +19,11 @@ import { agents } from "@/domain/agents"
 import { activeQuery, type Mention, type Skill } from "@/domain/mentions"
 import { configOption, type ImageAttachment, type Session } from "@/domain/session"
 import { useRun, useWorkspace } from "@/lib/runtime"
+import { useSettings } from "@/lib/settings"
 import { cn } from "@/lib/utils"
 import { emptyText, MentionPicker, type PickerRow, pickerRows } from "./mention-picker"
 import { choicesOf, effortChoicesOf, ModelEffortSelector } from "./model-effort-selector"
-import { formatElapsed, Led } from "./primitives"
+import { formatElapsed, type HeroIcon, Led } from "./primitives"
 import { RequestPrompt } from "./request-prompt"
 
 const useNow = (active: boolean) => {
@@ -46,6 +35,16 @@ const useNow = (active: boolean) => {
   }, [active])
   return now
 }
+
+/**
+ * Escape stops the turn only when nothing else wants it: not when a field already
+ * handled it, a menu, dialog or picker is open (its own Escape closes it first),
+ * or a terminal has focus (vim and friends need it).
+ */
+const escapeBelongsElsewhere = (event: KeyboardEvent) =>
+  event.defaultPrevented ||
+  (event.target instanceof Element && event.target.closest(".xterm") !== null) ||
+  document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]') !== null
 
 const StatusStrip = ({ session }: { session: Session }) => {
   const workspace = useWorkspace()
@@ -59,7 +58,7 @@ const StatusStrip = ({ session }: { session: Session }) => {
         <Led />
         <Shimmer className="text-text text-xs font-medium">Working</Shimmer>
         {session.turnStartedAt && (
-          <span className="text-text-3 font-mono text-[11px]">{formatElapsed(now - session.turnStartedAt)}</span>
+          <span className="text-text-3 text-2xs tabular-nums">{formatElapsed(now - session.turnStartedAt)}</span>
         )}
         <span className="flex-1" />
         <span className="text-text-3 text-xs">Esc to stop</span>
@@ -84,7 +83,7 @@ const StatusStrip = ({ session }: { session: Session }) => {
           onClick={() => void run(workspace.retry(session.id))}
           className="text-text-2 hover:text-text hover:bg-hover flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs"
         >
-          <RotateCwIcon className="size-3" />
+          <ArrowPathIcon className="size-3" />
           Retry
         </button>
       </div>
@@ -129,10 +128,10 @@ const ModeMenu = ({ session }: { session: Session }) => {
 
 /* Notra's Claude plus menu, with the items Termy can actually do. */
 const MENU_SURFACE_CLASS =
-  "rounded-2xl bg-[#1e1e21]/97 p-1.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1px_rgb(255_255_255/0.07),0_16px_40px_rgb(0_0_0/0.5)] ring-0 backdrop-blur-xl"
+  "rounded-2xl bg-popover/97 p-1.5 shadow-popover ring-0 backdrop-blur-xl"
 
 const MENU_ITEM_CLASS =
-  "text-text focus:bg-white/6 focus:text-text not-data-[variant=destructive]:focus:**:text-text data-highlighted:bg-white/6 h-8 cursor-pointer gap-2.5 rounded-lg px-2.5 py-0 text-[13px] leading-5 [&_svg:not([class*='size-'])]:size-4 [&_svg]:text-text-2"
+  "text-text focus:bg-white/6 focus:text-text not-data-[variant=destructive]:focus:**:text-text data-highlighted:bg-white/6 h-8 cursor-pointer gap-2.5 rounded-lg px-2.5 py-0 text-ui leading-5 [&_svg:not([class*='size-'])]:size-4 [&_svg]:text-text-2"
 
 const SUB_TRIGGER_CLASS = cn(
   MENU_ITEM_CLASS,
@@ -150,7 +149,7 @@ const PlusSubmenu = ({
   empty,
   onSelect,
 }: {
-  icon: LucideIcon
+  icon: HeroIcon
   label: string
   rows: ReadonlyArray<PickerRow>
   empty: string
@@ -220,26 +219,26 @@ const PlusMenu = ({
       >
         {acceptsImages && (
           <DropdownMenuItem className={MENU_ITEM_CLASS} onClick={onAddImages}>
-            <ImageIcon strokeWidth={ICON_STROKE} />
+            <PhotoIcon strokeWidth={ICON_STROKE} />
             Add images
             <DropdownMenuShortcut className="text-text-3 tracking-normal">⌘U</DropdownMenuShortcut>
           </DropdownMenuItem>
         )}
         <DropdownMenuItem className={MENU_ITEM_CLASS} onClick={() => onInsert("@")}>
-          <AtSignIcon strokeWidth={ICON_STROKE} />
+          <AtSymbolIcon strokeWidth={ICON_STROKE} />
           Mention a file
           <DropdownMenuShortcut className="text-text-3 tracking-normal">@</DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuSeparator className={SEPARATOR_CLASS} />
         <PlusSubmenu
-          icon={ScrollTextIcon}
+          icon={BookOpenIcon}
           label="Skills"
           rows={skillRows}
           empty={skills === null ? "Loading skills" : "No skills found"}
           onSelect={(row) => onInsert(`${row.insert} `, row.mention)}
         />
         <PlusSubmenu
-          icon={SquareSlashIcon}
+          icon={SlashIcon}
           label="Commands"
           rows={commandRows}
           empty={session.connected ? "No commands" : "Waiting for the agent"}
@@ -295,7 +294,7 @@ const ContextRing = ({ usage }: { usage: NonNullable<Session["usage"]> }) => {
         side="top"
         align="end"
         sideOffset={8}
-        className="w-[220px] gap-0 rounded-[14px] bg-[#1e1e21]/97 p-1 shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1px_rgb(255_255_255/0.07),0_16px_40px_rgb(0_0_0/0.5)] ring-0 backdrop-blur-xl"
+        className="w-[220px] gap-0 rounded-[14px] bg-popover/97 p-1 shadow-popover ring-0 backdrop-blur-xl"
       >
         <div className="flex flex-col gap-2 px-2.5 pt-2 pb-2.5">
           <div className="flex h-5 items-center justify-between text-xs">
@@ -355,7 +354,7 @@ const Attachments = ({
           src={`data:${image.mimeType};base64,${image.data}`}
           alt={image.name}
           title={image.name}
-          className="size-14 rounded-lg object-cover shadow-[0_0_0_1px_rgb(255_255_255/0.08)]"
+          className="size-14 rounded-lg object-cover shadow-outline"
         />
         <button
           type="button"
@@ -363,7 +362,7 @@ const Attachments = ({
           onClick={() => onRemove(index)}
           className="bg-text text-bg absolute -top-1.5 -right-1.5 hidden size-[18px] items-center justify-center rounded-full shadow-[0_1px_3px_rgb(0_0_0/0.5)] group-hover/attachment:flex"
         >
-          <XIcon className="size-2.5" strokeWidth={3} />
+          <XMarkIcon className="size-2.5" strokeWidth={3} />
         </button>
       </div>
     ))}
@@ -392,6 +391,7 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
   const [files, setFiles] = useState<ReadonlyArray<string> | null>(null)
   const [skills, setSkills] = useState<ReadonlyArray<Skill> | null>(null)
   const input = useRef<HTMLTextAreaElement>(null)
+  const { sendKey } = useSettings()
   const working = session?.status === "working"
   const acceptsImages = session?.supportsImages ?? false
   const canSend =
@@ -442,7 +442,7 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
   useEffect(() => {
     if (!working || !session) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") void run(workspace.cancel(session.id))
+      if (event.key === "Escape" && !escapeBelongsElsewhere(event)) void run(workspace.cancel(session.id))
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -525,9 +525,9 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
   return (
     <div
       className={cn(
-        "bg-raised relative flex w-full flex-col rounded-2xl shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1px_rgb(255_255_255/0.06),0_20px_50px_rgb(0_0_0/0.5)]",
+        "bg-raised relative flex w-full flex-col rounded-2xl shadow-composer",
         dragging &&
-          "shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1.5px_rgb(255_178_36/0.6),0_20px_50px_rgb(0_0_0/0.5)]",
+          "shadow-composer-drop",
         className,
       )}
     >
@@ -590,7 +590,9 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
               return
             }
           }
-          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+          // With ⌘Enter to send, a plain Enter is a newline.
+          const sends = sendKey === "enter" ? !event.shiftKey : event.metaKey
+          if (event.key === "Enter" && sends && !event.nativeEvent.isComposing) {
             event.preventDefault()
             submit()
           }
@@ -630,7 +632,7 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
             onClick={() => session && void run(workspace.cancel(session.id))}
             className="bg-text flex size-[30px] items-center justify-center rounded-full shadow-[0_1px_2px_rgb(0_0_0/0.4)] transition-transform active:scale-95"
           >
-            <SquareIcon className="fill-bg text-bg size-2.5" />
+            <SolidStopIcon className="fill-bg text-bg size-2.5" />
           </button>
         ) : (
           <button
@@ -641,7 +643,7 @@ export const Composer = ({ session, onSend, placeholder, autoFocus, className }:
             className={cn(
               "flex size-[30px] items-center justify-center rounded-full transition-[transform,background-color,box-shadow] active:scale-95",
               canSend
-                ? "bg-amber text-amber-ink shadow-[inset_0_1px_0_rgb(255_255_255/0.4),0_1px_2px_rgb(0_0_0/0.5),0_0_18px_rgb(255_178_36/0.22)]"
+                ? "bg-amber text-amber-ink shadow-amber"
                 : "text-text-3 bg-white/6",
             )}
           >

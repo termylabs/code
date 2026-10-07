@@ -1,5 +1,5 @@
-import { useNavigate, useParams } from "@tanstack/react-router"
-import { PlusIcon, SquarePenIcon, SquareTerminalIcon, XIcon } from "lucide-react"
+import { useNavigate, useParams, useRouterState } from "@tanstack/react-router"
+import { Cog6ToothIcon, CommandLineIcon, PencilSquareIcon, PlusIcon, XMarkIcon } from "@heroicons/react/24/outline"
 import { useEffect } from "react"
 import {
   DropdownMenu,
@@ -27,6 +27,14 @@ export const TabStrip = () => {
   const projects = useWorkspaceState((state) => state.projects)
   const { threadId, terminalId } = useParams({ strict: false })
   const activeId = threadId ?? terminalId
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  // Screens that aren't tabs still get a marker in the strip, so it shows where you are.
+  const screen =
+    pathname === "/"
+      ? { icon: PencilSquareIcon, title: "New thread" }
+      : pathname === "/settings"
+        ? { icon: Cog6ToothIcon, title: "Settings" }
+        : null
 
   const go = (tab: Tab | undefined) =>
     void (tab?._tag === "Thread"
@@ -92,7 +100,7 @@ export const TabStrip = () => {
             className={cn(
               "group/thread flex h-[30px] max-w-[200px] min-w-[96px] flex-1 basis-0 items-center rounded-lg transition-colors",
               active
-                ? "bg-raised shadow-[inset_0_1px_0_rgb(255_255_255/0.05),0_0_0_1px_rgb(255_255_255/0.04)]"
+                ? "bg-raised shadow-raised"
                 : "hover:bg-hover/60",
             )}
           >
@@ -103,7 +111,7 @@ export const TabStrip = () => {
               className="flex h-full min-w-0 flex-1 items-center gap-2 pl-2.5"
             >
               {tab._tag === "Terminal" ? (
-                <SquareTerminalIcon
+                <CommandLineIcon
                   className={cn("size-3.5 shrink-0", active ? "text-text" : "text-text-3")}
                   strokeWidth={1.6}
                 />
@@ -123,11 +131,17 @@ export const TabStrip = () => {
                 !active && "opacity-0 group-hover/thread:opacity-100",
               )}
             >
-              <XIcon className="size-3" />
+              <XMarkIcon className="size-3" />
             </button>
           </div>
         )
       })}
+      {screen && (
+        <div className="bg-raised shadow-raised flex h-[30px] max-w-[200px] min-w-[96px] flex-1 basis-0 items-center gap-2 rounded-lg px-2.5">
+          <screen.icon className="text-text size-3.5 shrink-0" strokeWidth={1.6} />
+          <span className="text-text min-w-0 truncate text-xs font-medium">{screen.title}</span>
+        </div>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label="New tab"
@@ -137,7 +151,7 @@ export const TabStrip = () => {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-auto min-w-52 rounded-xl p-1">
           <DropdownMenuItem onClick={() => go(undefined)} className="h-8 gap-2.5 rounded-lg text-xs">
-            <SquarePenIcon />
+            <PencilSquareIcon />
             <span className="flex-1">New thread</span>
             <Kbd>⌘N</Kbd>
           </DropdownMenuItem>
@@ -145,7 +159,7 @@ export const TabStrip = () => {
             <>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuLabel className="text-text-3 px-2 py-1 text-[11px] font-normal">
+                <DropdownMenuLabel className="text-text-3 px-2 py-1 text-2xs font-normal">
                   New terminal
                 </DropdownMenuLabel>
                 {terminalProjects.map((project) => (
@@ -155,7 +169,7 @@ export const TabStrip = () => {
                     onClick={() => void openTerminal(project.path, project.name)}
                     className="h-8 gap-2.5 rounded-lg text-xs"
                   >
-                    <SquareTerminalIcon />
+                    <CommandLineIcon />
                     <span className="truncate">{project.name}</span>
                   </DropdownMenuItem>
                 ))}

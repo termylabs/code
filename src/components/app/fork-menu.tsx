@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router"
-import { GitForkIcon } from "lucide-react"
+import { Square2StackIcon } from "@heroicons/react/24/outline"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,7 +51,7 @@ export const ForkMenu = ({
             : "h-[26px] gap-1.5 rounded-[7px] px-2.5 text-xs hover:bg-white/5 aria-expanded:bg-white/5",
         )}
       >
-        <GitForkIcon className="size-3.5" />
+        <Square2StackIcon className="size-3.5" />
         {!compact && "Fork"}
       </DropdownMenuTrigger>
       <DropdownMenuContent align={compact ? "start" : "end"} className="w-auto min-w-48 rounded-xl p-1">

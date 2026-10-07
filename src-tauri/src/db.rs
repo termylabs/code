@@ -28,7 +28,10 @@ const MIGRATIONS: &[&str] = &[r#"
         updated_at      INTEGER NOT NULL
     );
     CREATE INDEX threads_project_updated ON threads(project_id, updated_at DESC);
-"#];
+"#,
+    // How far into the daemon's log for this thread's agent the saved items go.
+    r#"ALTER TABLE threads ADD COLUMN log_seq INTEGER NOT NULL DEFAULT 0;"#,
+];
 
 impl Db {
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
@@ -88,6 +91,8 @@ pub struct Thread {
     items: serde_json::Value,
     created_at: i64,
     updated_at: i64,
+    #[serde(default)]
+    log_seq: i64,
 }
 
 #[tauri::command]
@@ -262,7 +267,7 @@ pub fn db_threads_search(db: State<'_, Db>, query: String) -> Result<Vec<SearchH
 pub fn db_thread_get(db: State<'_, Db>, id: String) -> Result<Option<Thread>, String> {
     db.with(|conn| {
         conn.query_row(
-            "SELECT id, project_id, agent_id, acp_session_id, title, items, created_at, updated_at
+            "SELECT id, project_id, agent_id, acp_session_id, title, items, created_at, updated_at, log_seq
              FROM threads WHERE id = ?1",
             [id],
             |row| {
@@ -276,6 +281,7 @@ pub fn db_thread_get(db: State<'_, Db>, id: String) -> Result<Option<Thread>, St
                     items: serde_json::from_str(&items).unwrap_or(serde_json::Value::Array(vec![])),
                     created_at: row.get(6)?,
                     updated_at: row.get(7)?,
+                    log_seq: row.get(8)?,
                 })
             },
         )
@@ -287,13 +293,14 @@ pub fn db_thread_get(db: State<'_, Db>, id: String) -> Result<Option<Thread>, St
 pub fn db_thread_save(db: State<'_, Db>, thread: Thread) -> Result<(), String> {
     db.with(|conn| {
         conn.execute(
-            "INSERT INTO threads (id, project_id, agent_id, acp_session_id, title, items, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO threads (id, project_id, agent_id, acp_session_id, title, items, created_at, updated_at, log_seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(id) DO UPDATE SET
                 acp_session_id = excluded.acp_session_id,
                 title = excluded.title,
                 items = excluded.items,
-                updated_at = excluded.updated_at",
+                updated_at = excluded.updated_at,
+                log_seq = excluded.log_seq",
             params![
                 thread.id,
                 thread.project_id,
@@ -302,7 +309,8 @@ pub fn db_thread_save(db: State<'_, Db>, thread: Thread) -> Result<(), String> {
                 thread.title,
                 thread.items.to_string(),
                 thread.created_at,
-                thread.updated_at
+                thread.updated_at,
+                thread.log_seq
             ],
         )
         .map(drop)

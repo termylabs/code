@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { Schema } from "effect"
-import { CheckIcon, ChevronDownIcon, FolderOpenIcon, FolderPlusIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon, FolderOpenIcon, FolderPlusIcon } from "@heroicons/react/24/outline"
 import { useEffect, useRef, useState } from "react"
 import { AgentIcon } from "@/components/app/agent-icon"
 import { Composer } from "@/components/app/composer"
@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { AgentId, agentList } from "@/domain/agents"
 import type { Mention } from "@/domain/mentions"
 import type { ImageAttachment } from "@/domain/session"
@@ -25,6 +26,8 @@ const Search = Schema.Struct({
 
 const LAST_AGENT_KEY = "termy.lastAgent"
 
+const agentNames = new Intl.ListFormat("en", { type: "conjunction" }).format(agentList.map((agent) => agent.name))
+
 const lastAgent = (): AgentId => {
   try {
     const stored = localStorage.getItem(LAST_AGENT_KEY)
@@ -35,27 +38,31 @@ const lastAgent = (): AgentId => {
 }
 
 const AgentSwitch = ({ value, onChange }: { value: AgentId; onChange: (agent: AgentId) => void }) => (
-  <div className="bg-panel flex items-center gap-0.5 rounded-[10px] p-0.5 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.04)]">
-    {agentList.map((agent) => (
-      <button
-        key={agent.id}
-        type="button"
-        onClick={() => onChange(agent.id)}
-        aria-pressed={agent.id === value}
-        aria-label={agent.name}
-        title={agent.name}
-        className={cn(
-          "flex h-7 items-center gap-2 rounded-lg transition-[background-color,color] duration-150",
-          agent.id === value
-            ? "bg-hover text-text px-3 shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_1px_2px_rgb(0_0_0/0.4)]"
-            : "text-text-2 hover:text-text px-2",
-        )}
-      >
-        <AgentIcon agent={agent.id} className="size-3.5" />
-        {/* Only the chosen agent is named, so all six fit beside the project picker. */}
-        {agent.id === value && <span className="text-xs font-medium">{agent.name}</span>}
-      </button>
-    ))}
+  <div className="bg-panel flex items-center gap-0.5 rounded-[10px] p-0.5 shadow-hairline">
+    {agentList.map((agent) => {
+      const chosen = agent.id === value
+      return (
+        // Only the chosen agent is named, so all six fit beside the project picker; the rest name themselves on hover.
+        <Tooltip key={agent.id} disabled={chosen}>
+          <TooltipTrigger
+            onClick={() => onChange(agent.id)}
+            aria-pressed={chosen}
+            aria-label={agent.name}
+            className={cn(
+              "flex h-7 items-center gap-2 rounded-lg transition-[background-color,color] duration-150",
+              chosen ? "bg-hover text-text px-3 shadow-segment" : "text-text-2 hover:text-text px-2",
+            )}
+          >
+            {/* Brand color only on the chosen agent, so one colorful logo doesn't pull the eye. */}
+            <AgentIcon agent={agent.id} mono={!chosen} className="size-3.5" />
+            {chosen && <span className="text-xs font-medium">{agent.name}</span>}
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={6} className="rounded-md px-2 py-1 text-2xs font-medium">
+            {agent.name}
+          </TooltipContent>
+        </Tooltip>
+      )
+    })}
   </div>
 )
 
@@ -124,13 +131,13 @@ const NewThread = () => {
       <section className="surface flex flex-1 flex-col items-center justify-center gap-5 rounded-xl px-10 pb-16">
         <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-12" />
         <div className="flex flex-col items-center gap-2.5">
-          <h1 className="text-text text-[30px] leading-9 font-semibold tracking-[-0.03em]">Open a project to start</h1>
-          <p className="text-text-2 text-[13px]">Pick a folder. Claude Code, Codex and Cursor work right inside it.</p>
+          <h1 className="text-text text-display leading-9 font-semibold tracking-[-0.03em]">Open a project to start</h1>
+          <p className="text-text-2 text-ui">Pick a folder. {agentNames} work right inside it.</p>
         </div>
         <button
           type="button"
           onClick={() => void addProject()}
-          className="bg-amber text-amber-ink flex h-9 items-center gap-2 rounded-lg px-4 text-[13px] font-semibold shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_1px_2px_rgb(0_0_0/0.5),0_0_20px_rgb(255_178_36/0.18)] transition-transform active:scale-[0.98]"
+          className="bg-amber text-amber-ink flex h-9 items-center gap-2 rounded-lg px-4 text-ui font-semibold shadow-amber transition-transform active:scale-[0.98]"
         >
           <FolderPlusIcon className="size-4" />
           Add project
@@ -143,16 +150,15 @@ const NewThread = () => {
 
   return (
     <section className="surface relative flex flex-1 flex-col rounded-xl">
-      <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-3 pr-3 pl-5">
-        <span className="text-text text-[13px] font-semibold tracking-[-0.01em]">New thread</span>
-      </header>
+      {/* The tab strip names this screen; the header only keeps the window draggable. */}
+      <header data-tauri-drag-region className="h-12 shrink-0" />
 
       <div className="flex flex-1 flex-col items-center justify-center gap-7 px-10 pb-[72px]">
         <div className="flex w-full max-w-[632px] flex-col items-center gap-2.5 text-center">
-          <h1 className="text-text text-[30px] leading-9 font-semibold tracking-[-0.03em]">
+          <h1 className="text-text text-display leading-9 font-semibold tracking-[-0.03em]">
             What are we building in {project.name}?
           </h1>
-          <p className="text-text-2 text-[13px] leading-5">
+          <p className="text-text-2 text-ui leading-5">
             {[
               branch && `Working on ${branch}.`,
               running > 0 && `${running === 1 ? "One thread is" : `${running} threads are`} still running in the background.`,

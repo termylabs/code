@@ -1,4 +1,4 @@
-import { GitBranchIcon } from "lucide-react"
+import { ShareIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { useRun, useWorkspace } from "@/lib/runtime"
 import { AgentIcon } from "./agent-icon"
@@ -22,8 +22,8 @@ export const useGitBranch = (cwd: string | undefined) => {
 export const BranchPill = ({ branch }: { branch: string | null }) =>
   branch ? (
     <span className="bg-raised flex h-[22px] shrink-0 items-center gap-1.5 rounded-md px-2">
-      <GitBranchIcon className="text-text-2 size-3" />
-      <span className="text-text-2 font-mono text-[11px]">{branch}</span>
+      <ShareIcon className="text-text-2 size-3" />
+      <span className="text-text-2 text-2xs">{branch}</span>
     </span>
   ) : null
 
@@ -41,7 +41,7 @@ export const ThreadHeader = ({
   const branch = useGitBranch(cwd)
   return (
     <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-3 pr-3 pl-5">
-      <span className="text-text truncate text-[13px] font-semibold tracking-[-0.01em]">{title}</span>
+      <span className="text-text truncate text-ui font-semibold tracking-[-0.01em]">{title}</span>
       <BranchPill branch={branch} />
       <span className="flex-1" />
       <span className="flex h-[26px] items-center gap-1.5 rounded-[7px] px-2.5 shadow-[0_0_0_1px_var(--line)]">

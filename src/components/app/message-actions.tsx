@@ -1,4 +1,4 @@
-import { CheckIcon, CopyIcon, RefreshCwIcon } from "lucide-react"
+import { ArrowPathIcon, CheckIcon, DocumentDuplicateIcon } from "@heroicons/react/24/outline"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -14,7 +14,7 @@ const ActionButton = ({ label, onClick, children }: { label: string; onClick?: (
     >
       {children}
     </TooltipTrigger>
-    <TooltipContent side="bottom" sideOffset={6} className="rounded-md px-2 py-1 text-[11px] font-medium">
+    <TooltipContent side="bottom" sideOffset={6} className="rounded-md px-2 py-1 text-2xs font-medium">
       {label}
     </TooltipContent>
   </Tooltip>
@@ -57,11 +57,11 @@ export const MessageActions = ({
   return (
     <div className={cn("-ml-1.5 flex items-center gap-0.5", className)}>
       <ActionButton label={copied ? "Copied" : "Copy"} onClick={() => void copy()}>
-        {copied ? <CheckIcon /> : <CopyIcon />}
+        {copied ? <CheckIcon /> : <DocumentDuplicateIcon />}
       </ActionButton>
       {onRetry && (
         <ActionButton label="Retry" onClick={onRetry}>
-          <RefreshCwIcon />
+          <ArrowPathIcon />
         </ActionButton>
       )}
       {children}

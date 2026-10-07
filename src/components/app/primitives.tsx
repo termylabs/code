@@ -1,4 +1,8 @@
+import type { PlusIcon } from "@heroicons/react/24/outline"
 import { cn } from "@/lib/utils"
+
+/** Any Heroicon; they all share one component type. */
+export type HeroIcon = typeof PlusIcon
 
 /** The amber LED. The one place the accent means "live". */
 export const Led = ({ className }: { className?: string }) => (
@@ -26,11 +30,11 @@ export const EffortMeter = ({ level, of, size = "sm" }: { level: number; of: num
 }
 
 export const Kbd = ({ children }: { children: React.ReactNode }) => (
-  <span className="text-text-3 font-mono text-[11px]">{children}</span>
+  <span className="text-text-3 text-2xs">{children}</span>
 )
 
 export const Diffstat = ({ additions, deletions }: { additions: number; deletions: number }) => (
-  <span className="flex items-center gap-1.5 font-mono text-[11px]">
+  <span className="flex items-center gap-1.5 text-2xs tabular-nums">
     {additions > 0 && <span className="text-add">+{additions}</span>}
     {deletions > 0 && <span className="text-remove">-{deletions}</span>}
   </span>

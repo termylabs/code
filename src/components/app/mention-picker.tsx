@@ -1,38 +1,28 @@
 import type * as acp from "@agentclientprotocol/sdk"
-import {
-  BoxIcon,
-  FileCodeIcon,
-  FileIcon,
-  FileJsonIcon,
-  FileTerminalIcon,
-  FileTextIcon,
-  ImageIcon,
-  type LucideIcon,
-  SettingsIcon,
-  SquareSlashIcon,
-} from "lucide-react"
+import { CodeBracketIcon, CodeBracketSquareIcon, Cog6ToothIcon, CommandLineIcon, CubeIcon, DocumentIcon, DocumentTextIcon, PhotoIcon, SlashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useRef } from "react"
+import type { HeroIcon } from "./primitives"
 import type { AgentId } from "@/domain/agents"
 import { type Mention, type QueryKind, rankByName, rankFiles, rankSkills, type Skill, skillTitle } from "@/domain/mentions"
 import { cn } from "@/lib/utils"
 
 const MAX_ROWS = 50
 
-const extensionIcons: ReadonlyArray<readonly [RegExp, LucideIcon]> = [
-  [/\.(toml|ya?ml|ini|env|lock|config)$|^\.|rc$/, SettingsIcon],
-  [/\.json5?$/, FileJsonIcon],
-  [/\.(md|mdx|txt|rst)$/, FileTextIcon],
-  [/\.(png|jpe?g|gif|webp|svg|ico|icns)$/, ImageIcon],
-  [/\.(sh|bash|zsh|fish)$/, FileTerminalIcon],
-  [/\.(tsx?|jsx?|mjs|cjs|rs|go|py|rb|swift|kt|java|c|cc|cpp|h|hpp|cs|css|scss|html|vue|svelte|sql|lua|zig)$/, FileCodeIcon],
+const extensionIcons: ReadonlyArray<readonly [RegExp, HeroIcon]> = [
+  [/\.(toml|ya?ml|ini|env|lock|config)$|^\.|rc$/, Cog6ToothIcon],
+  [/\.json5?$/, CodeBracketSquareIcon],
+  [/\.(md|mdx|txt|rst)$/, DocumentTextIcon],
+  [/\.(png|jpe?g|gif|webp|svg|ico|icns)$/, PhotoIcon],
+  [/\.(sh|bash|zsh|fish)$/, CommandLineIcon],
+  [/\.(tsx?|jsx?|mjs|cjs|rs|go|py|rb|swift|kt|java|c|cc|cpp|h|hpp|cs|css|scss|html|vue|svelte|sql|lua|zig)$/, CodeBracketIcon],
 ]
 
 export const iconFor = (fileName: string) =>
-  extensionIcons.find(([pattern]) => pattern.test(fileName.toLowerCase()))?.[1] ?? FileIcon
+  extensionIcons.find(([pattern]) => pattern.test(fileName.toLowerCase()))?.[1] ?? DocumentIcon
 
 export interface PickerRow {
   readonly key: string
-  readonly icon: LucideIcon
+  readonly icon: HeroIcon
   readonly title: string
   readonly detail: string
   readonly trailing?: string
@@ -54,7 +44,7 @@ export const pickerRows = (
   if (kind === "command") {
     return rankByName(commands, query, MAX_ROWS).map((command) => ({
       key: command.name,
-      icon: SquareSlashIcon,
+      icon: SlashIcon,
       title: `/${command.name}`,
       detail: command.description,
       trailing: command.input?.hint,
@@ -77,7 +67,7 @@ export const pickerRows = (
   }
   return rankSkills(skills, query, MAX_ROWS).map((skill) => ({
     key: skill.path,
-    icon: BoxIcon,
+    icon: CubeIcon,
     title: skillTitle(skill.name),
     detail: skill.description,
     trailing: skill.scope === "project" ? "Project" : "Global",
@@ -114,9 +104,9 @@ export const MentionPicker = ({
   }, [active])
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 bg-raised absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-2xl p-1 shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1px_rgb(255_255_255/0.06),0_16px_40px_rgb(0_0_0/0.5)] duration-150">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 bg-raised absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-2xl p-1 shadow-popover duration-150">
       {rows.length === 0 ? (
-        <p className="text-text-3 flex h-9 items-center px-3 text-[13px]">{empty}</p>
+        <p className="text-text-3 flex h-9 items-center px-3 text-ui">{empty}</p>
       ) : (
         <div ref={list} role="listbox" className="no-scrollbar flex max-h-[296px] flex-col overflow-y-auto">
           {rows.map((row, index) => {
@@ -137,10 +127,10 @@ export const MentionPicker = ({
                 )}
               >
                 <Icon className={cn("size-4 shrink-0", index === active ? "text-text" : "text-text-2")} strokeWidth={1.6} />
-                <span className={cn("shrink-0 text-[13px]", index === active ? "text-text" : "text-text-2")}>
+                <span className={cn("shrink-0 text-ui", index === active ? "text-text" : "text-text-2")}>
                   {row.title}
                 </span>
-                <span className="text-text-3 min-w-0 flex-1 truncate text-[13px]">{row.detail}</span>
+                <span className="text-text-3 min-w-0 flex-1 truncate text-ui">{row.detail}</span>
                 {row.trailing && <span className="text-text-3 shrink-0 text-xs">{row.trailing}</span>}
               </button>
             )

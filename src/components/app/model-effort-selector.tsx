@@ -1,5 +1,5 @@
 import type * as acp from "@agentclientprotocol/sdk"
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/24/outline"
 import { type CSSProperties, useEffect, useLayoutEffect, useState } from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Slider } from "@/components/ui/slider"
@@ -216,7 +216,7 @@ export const ModelEffortSelector = ({
           <div
             aria-hidden
             className={cn(
-              "absolute inset-x-0 bottom-0 rounded-3xl bg-[#1e1e21]/97 shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_0_0_1px_rgb(255_255_255/0.07),0_16px_40px_rgb(0_0_0/0.5)] backdrop-blur-xl",
+              "absolute inset-x-0 bottom-0 rounded-3xl bg-popover/97 shadow-popover backdrop-blur-xl",
               cardReady && "transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
             )}
             style={{ height: cardHeight ?? "100%" }}
@@ -238,13 +238,13 @@ export const ModelEffortSelector = ({
                   type="button"
                   aria-label={`Model: ${selectedModel?.name ?? "default"}. Change model`}
                   onClick={() => setView("models")}
-                  className="text-text mx-auto flex h-7 items-center gap-1 rounded-full px-3 text-[13px] transition-colors hover:bg-white/6 focus-visible:ring-2 focus-visible:ring-amber/35"
+                  className="text-text mx-auto flex h-7 items-center gap-1 rounded-full px-3 text-ui transition-colors hover:bg-white/6 focus-visible:ring-2 focus-visible:ring-amber/35"
                 >
                   {selectedModel?.name ?? "Choose model"}
                   <ChevronRightIcon className="text-text-3 size-3.5" strokeWidth={2} />
                 </button>
               ) : (
-                <span className="text-text mx-auto flex h-7 items-center text-[13px]">
+                <span className="text-text mx-auto flex h-7 items-center text-ui">
                   {selectedEffort && <EffortName effort={selectedEffort} max={isMax} />}
                 </span>
               )}
@@ -352,7 +352,7 @@ export const ModelEffortSelector = ({
                     if (hasEfforts) setView("effort")
                     else setOpen(false)
                   }}
-                  className="text-text flex h-9 shrink-0 items-center justify-between gap-3 rounded-xl px-3 text-start text-[13px] transition-colors hover:bg-white/6 focus-visible:ring-2 focus-visible:ring-amber/35"
+                  className="text-text flex h-9 shrink-0 items-center justify-between gap-3 rounded-xl px-3 text-start text-ui transition-colors hover:bg-white/6 focus-visible:ring-2 focus-visible:ring-amber/35"
                 >
                   <span className="truncate">{choice.name}</span>
                   {choice.value === model && <CheckIcon className="size-4 shrink-0" strokeWidth={1.75} />}

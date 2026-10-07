@@ -15,7 +15,8 @@
   --line: #2a2a2e;
   --text: #ece9e4;
   --text-2: #9b9892;
-  --text-3: #66645f;
+  /* At least 4.5:1 on --raised, so small dim text stays readable. */
+  --text-3: #85827b;
   --amber: #ffb224;
   --amber-ink: #1a1204;
   --effort-max-gradient: linear-gradient(90deg, #ff7a1a 0%, #ffb224 25%, #ffe3a1 50%, #ffb224 75%, #ff7a1a 100%);
@@ -44,15 +45,57 @@
   --input: rgb(255 255 255 / 0.08);
   --ring: rgb(255 178 36 / 0.5);
   --radius: 0.625rem;
+
+  /* Overridden at runtime from Settings (src/lib/settings.ts). */
+  --ui-font: "Geist Variable", system-ui, sans-serif;
+  --code-font: "Geist Mono Variable", ui-monospace, monospace;
+  --font-scale: 1;
+  --code-font-size: 12px;
+  --glass-opacity: 0.6;
+
+  /* The window chrome (sidebar, tab strip) and the panels on it. Opaque unless glass is on. */
+  --chrome: var(--panel);
+  --surface: var(--bg);
+}
+
+/* Glass: the window is see-through and macOS blurs the desktop behind it. Panels stay
+   more opaque than the chrome so text over them keeps its contrast. */
+:root[data-glass] {
+  --chrome: rgb(19 19 21 / var(--glass-opacity));
+  --surface: rgb(12 12 13 / min(1, calc(var(--glass-opacity) + 0.3)));
 }
 
 @theme inline {
-  --font-sans: "Geist Variable", system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --font-sans: var(--ui-font);
+  --font-mono: var(--code-font);
   --font-heading: var(--font-sans);
+
+  /* Type scale: 11 for meta, 12 (text-xs) for controls, 13 for UI, 14 (text-sm) for messages. */
+  /* Everything scales with the interface font size setting. */
+  --text-2xs: calc(11px * var(--font-scale));
+  --text-xs: calc(12px * var(--font-scale));
+  --text-ui: calc(13px * var(--font-scale));
+  --text-sm: calc(14px * var(--font-scale));
+  --text-base: calc(16px * var(--font-scale));
+  --text-title: calc(15px * var(--font-scale));
+  --text-display: calc(30px * var(--font-scale));
+  /* Code blocks; the terminal and diffs read the same setting. */
+  --text-code: var(--code-font-size);
+
+  /* Lit edges and drop shadows for the instrument chrome. */
+  --shadow-hairline: inset 0 0 0 1px rgb(255 255 255 / 0.05);
+  --shadow-outline: 0 0 0 1px rgb(255 255 255 / 0.08);
+  --shadow-raised: inset 0 1px 0 rgb(255 255 255 / 0.05), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --shadow-segment: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-popover: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 0 0 1px rgb(255 255 255 / 0.07), 0 16px 40px rgb(0 0 0 / 0.5);
+  --shadow-dialog: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 0 0 1px rgb(255 255 255 / 0.07), 0 24px 60px rgb(0 0 0 / 0.6);
+  --shadow-composer: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 0 0 1px rgb(255 255 255 / 0.06), 0 20px 50px rgb(0 0 0 / 0.5);
+  --shadow-composer-drop: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 0 0 1.5px rgb(255 178 36 / 0.6), 0 20px 50px rgb(0 0 0 / 0.5);
+  --shadow-amber: inset 0 1px 0 rgb(255 255 255 / 0.4), 0 1px 2px rgb(0 0 0 / 0.5), 0 0 18px rgb(255 178 36 / 0.22);
 
   --color-bg: var(--bg);
   --color-panel: var(--panel);
+  --color-chrome: var(--chrome);
   --color-raised: var(--raised);
   --color-hover: var(--hover);
   --color-line: var(--line);
@@ -159,8 +202,8 @@
     height: 100%;
   }
   body {
-    @apply bg-panel text-text font-sans antialiased;
-    font-size: 13px;
+    @apply bg-chrome text-text font-sans antialiased;
+    font-size: var(--text-ui);
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
@@ -185,10 +228,15 @@
       0 0 10px rgb(255 178 36 / 0.7);
   }
   .surface {
-    background: var(--bg);
+    background: var(--surface);
     box-shadow:
       0 0 0 1px rgb(255 255 255 / 0.05),
       0 8px 30px rgb(0 0 0 / 0.35);
+  }
+  /* xterm's stylesheet paints the viewport black; the terminal's own theme is transparent,
+     so the panel (and glass) shows through. */
+  .xterm .xterm-viewport {
+    background-color: transparent !important;
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
@@ -199,5 +247,14 @@
   .animate-led {
     animation: none;
   }
+}
+
+/* The Reduce motion setting: no shimmer, pulsing or sliding anywhere. */
+[data-reduce-motion] *,
+[data-reduce-motion] *::before,
+[data-reduce-motion] *::after {
+  animation-duration: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0s !important;
 }
 

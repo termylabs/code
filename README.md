@@ -2,7 +2,7 @@
 
 Termy Code is a desktop app for working with AI coding agents. Instead of running Claude Code, Codex and Cursor each in its own terminal tab, you open a project once and talk to any of them from the same window. Each conversation is saved as a thread you can search and return to later.
 
-When an agent edits files, the changes show up as diffs you can review before moving on. When it runs commands, they run in a real terminal built on [Termy](https://github.com/lassejlv/termy)'s PTY, and you can see the output as it happens. A terminal panel is also there for your own commands.
+When an agent edits files, the changes show up as diffs you can review before moving on. When it runs commands, they run in a real terminal built on [Alacritty](https://github.com/alacritty/alacritty)'s PTY, and you can see the output as it happens. A terminal panel is also there for your own commands.
 
 Termy Code talks to the agents over the [Agent Client Protocol](https://agentclientprotocol.com) (ACP), the open protocol these CLIs use to work with editors. The agents keep their own models, tools and logins. Termy Code gives them a better interface.
 
@@ -11,7 +11,7 @@ Termy Code talks to the agents over the [Agent Client Protocol](https://agentcli
 - **Multiple agents.** Claude Code, Codex and Cursor connect over ACP.
 - **Projects and threads.** Conversations are saved per project in a local SQLite database, and you can search them.
 - **Tool calls in the timeline.** Agent tool calls are grouped into stacks. You can review file diffs in a side pane.
-- **Built-in terminal.** The terminal panel uses xterm.js on top of Termy's raw PTY. Commands that agents run through ACP `terminal/*` use the same PTY layer.
+- **Built-in terminal.** The terminal panel uses xterm.js on top of Alacritty's native PTY. Commands that agents run through ACP `terminal/*` use the same PTY layer.
 - **Permission prompts.** Agent requests for permission or input appear inline.
 - **Composer.** You can attach images, switch models and set reasoning effort. Type `@` to mention a file or `$` to use one of the agent's skills.
 - **Command palette.** Jump between projects and threads from the keyboard.
@@ -40,21 +40,12 @@ macOS starts GUI apps with a minimal `PATH`. Termy Code reads `PATH` from your l
 
 ### Setup
 
-`termy_core` comes from the `termy-code/raw-pty` branch of Termy and is linked by path. Check that branch out as a sibling of this repo:
+The Rust terminal backend uses `alacritty_terminal` from crates.io. No sibling checkout is needed.
 
 ```sh
 git clone https://github.com/termylabs/code termycode
-git clone -b termy-code/raw-pty https://github.com/lassejlv/termy termy-raw-pty
 cd termycode
 bun install
-```
-
-You should end up with this layout:
-
-```
-Dev/
-├── termycode/      # this repo
-└── termy-raw-pty/  # termy @ termy-code/raw-pty
 ```
 
 ### Run
@@ -64,13 +55,21 @@ bun tauri dev       # run the app with hot reload
 bun tauri build     # build a release bundle
 ```
 
+### Signed macOS releases
+
+The [macOS release workflow](.github/workflows/release-macos.yml) builds signed,
+Apple-notarized DMG and ZIP downloads for Apple Silicon and Intel. Manual runs
+produce test artifacts; pushing a matching `v*` version tag publishes a release
+after both architectures pass. See [release setup and verification](docs/macos-releases.md).
+
 ## Architecture
 
 ```
 src-tauri/          Rust backend (Tauri v2)
-├── agent.rs            spawns agents and pipes ndjson stdio to the webview
-├── agent_terminal.rs   ACP terminal/* commands on Termy PTYs with sanitized output
-├── terminal.rs         interactive shells for the terminal panel
+├── daemon/             persistent agents and interactive shells
+├── daemon_client.rs    connects the app to the background daemon
+├── pty.rs              raw Alacritty PTY transport and process lifecycle
+├── agent_terminal.rs   ACP terminal/* commands with sanitized output
 ├── workspace.rs        ACP fs/* requests, git branch and image attachments
 ├── mentions.rs         project files and agent skills for @ and $ mentions
 ├── db.rs               SQLite storage and search for projects and threads
@@ -80,9 +79,9 @@ src/                React frontend
 ├── services/           Effect services
 │   ├── Workspace.ts        app state (SubscriptionRef) and agent session lifecycles
 │   ├── AcpClient.ts        wraps the ACP SDK
-│   ├── AgentHost.ts        turns Tauri events into an ACP stream
+│   ├── AgentHost.ts        turns daemon events into an ACP stream
 │   ├── Database.ts         fronts the db_* commands
-│   └── TerminalHost.ts     fronts the term_* commands
+│   └── TerminalHost.ts     opens and reattaches daemon shells
 ├── domain/             pure types and reducers (timeline, tool stacks, diffs, cursor/* extensions)
 ├── routes/             TanStack Router file routes
 └── components/         app UI, shadcn on Base UI, Notra registry components

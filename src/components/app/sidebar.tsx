@@ -1,6 +1,6 @@
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { FolderPlusIcon, MoreHorizontalIcon, PlusIcon, SearchIcon, SquarePenIcon, Trash2Icon } from "lucide-react"
-import { useEffect, useMemo } from "react"
+import { Cog6ToothIcon, EllipsisHorizontalIcon, FolderPlusIcon, MagnifyingGlassIcon, PencilSquareIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { useEffect, useMemo, useState } from "react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,8 +20,10 @@ import { ResizeHandle, usePanelWidth } from "./resize-handle"
 /** The thread's agent, with a badge in the corner while it's starting, working or failed. */
 export const AgentSlot = ({ agent, status, dim }: { agent: AgentId; status: SessionStatus | undefined; dim: boolean }) => (
   <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+    {/* Monochrome, so the amber badge is the only color in the list. */}
     <AgentIcon
       agent={agent}
+      mono
       className={cn("text-text-2 size-3.5 transition-opacity", dim && "opacity-55 group-hover/thread:opacity-100")}
     />
     {status === "working" && <Led className="absolute -right-1 -bottom-1 size-[7px]" />}
@@ -36,6 +38,8 @@ const ThreadRow = ({ thread, active, status }: { thread: ThreadSummary; active: 
   const workspace = useWorkspace()
   const run = useRun()
   const navigate = useNavigate()
+  // Deleting takes a second click on the same spot, and moving away cancels it.
+  const [armed, setArmed] = useState(false)
 
   const remove = async () => {
     await run(workspace.deleteThread(thread.id))
@@ -46,6 +50,7 @@ const ThreadRow = ({ thread, active, status }: { thread: ThreadSummary; active: 
     <Link
       to="/thread/$threadId"
       params={{ threadId: thread.id }}
+      onMouseLeave={() => setArmed(false)}
       className={cn(
         "group/thread flex h-8 items-center gap-2.5 rounded-lg px-2.5 transition-colors",
         active ? "bg-hover" : "hover:bg-hover/60",
@@ -54,7 +59,7 @@ const ThreadRow = ({ thread, active, status }: { thread: ThreadSummary; active: 
       <AgentSlot agent={thread.agentId} status={status} dim={!active && status !== "working"} />
       <span
         className={cn(
-          "min-w-0 flex-1 truncate text-[13px]",
+          "min-w-0 flex-1 truncate text-ui",
           active ? "text-text font-medium" : status === "working" ? "text-text" : "text-text-2",
         )}
       >
@@ -62,7 +67,8 @@ const ThreadRow = ({ thread, active, status }: { thread: ThreadSummary; active: 
       </span>
       <span
         className={cn(
-          "w-8 shrink-0 text-right font-mono text-[11px] group-hover/thread:hidden",
+          "w-8 shrink-0 text-right text-2xs tabular-nums group-hover/thread:hidden group-focus-within/thread:hidden",
+          armed && "hidden",
           status === "working" ? "text-amber" : "text-text-3",
         )}
       >
@@ -70,15 +76,21 @@ const ThreadRow = ({ thread, active, status }: { thread: ThreadSummary; active: 
       </span>
       <button
         type="button"
-        aria-label="Delete thread"
+        aria-label={armed ? "Confirm delete thread" : "Delete thread"}
         onClick={(event) => {
           event.preventDefault()
           event.stopPropagation()
-          void remove()
+          if (armed) void remove()
+          else setArmed(true)
         }}
-        className="text-text-3 hover:text-text hidden w-8 shrink-0 justify-end group-hover/thread:flex"
+        onBlur={() => setArmed(false)}
+        className={cn(
+          // Shown on keyboard focus too, so Tab reaches it from the row.
+          "hidden min-w-8 shrink-0 items-center justify-end group-hover/thread:flex group-focus-within/thread:flex",
+          armed ? "text-remove flex text-2xs font-medium" : "text-text-3 hover:text-text",
+        )}
       >
-        <Trash2Icon className="size-3.5" />
+        {armed ? "Delete" : <TrashIcon className="size-3.5" />}
       </button>
     </Link>
   )
@@ -98,6 +110,8 @@ const ProjectGroup = ({
   const workspace = useWorkspace()
   const run = useRun()
   const navigate = useNavigate()
+  // Removing a project deletes its threads too, so the menu item asks once more.
+  const [confirming, setConfirming] = useState(false)
 
   return (
     <div className="flex flex-col gap-px pb-4">
@@ -105,22 +119,32 @@ const ProjectGroup = ({
         <span className="text-text-3 flex-1 truncate text-xs font-medium" title={project.path}>
           {project.name}
         </span>
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => !open && setConfirming(false)}>
           <DropdownMenuTrigger
             aria-label={`${project.name} options`}
             className="text-text-3 hover:text-text opacity-0 transition-opacity group-hover/project:opacity-100 data-popup-open:opacity-100"
           >
-            <MoreHorizontalIcon className="size-3.5" />
+            <EllipsisHorizontalIcon className="size-3.5" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuContent align="end" className="w-auto min-w-44">
             <DropdownMenuItem onClick={() => void navigate({ to: "/", search: { project: project.id } })}>
-              <SquarePenIcon />
+              <PencilSquareIcon />
               New thread
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onClick={() => void run(workspace.removeProject(project.id))}>
-              <Trash2Icon />
-              Remove project
+            <DropdownMenuItem
+              variant="destructive"
+              closeOnClick={confirming || threads.length === 0}
+              onClick={() =>
+                confirming || threads.length === 0
+                  ? void run(workspace.removeProject(project.id))
+                  : setConfirming(true)
+              }
+            >
+              <TrashIcon />
+              {confirming
+                ? `Confirm: deletes ${threads.length === 1 ? "1 thread" : `${threads.length} threads`}`
+                : "Remove project"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -181,17 +205,21 @@ export const Sidebar = ({ onSearch }: { onSearch: () => void }) => {
   }
 
   return (
-    <aside style={{ width }} className="bg-panel relative flex h-full shrink-0 flex-col px-2.5 pb-3">
+    <aside style={{ width }} className="relative flex h-full shrink-0 flex-col px-2.5 pb-3">
       <ResizeHandle edge="right" width={width} onResize={resize} onReset={reset} />
       <div data-tauri-drag-region className="h-[52px] shrink-0" />
 
       <nav className="flex flex-col gap-1.5 pt-1 pb-5">
+        {/* Raised only while the new-thread screen is open, like a selected row. */}
         <Link
           to="/"
-          className="bg-raised flex h-[34px] items-center gap-2.5 rounded-lg px-2.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.05),0_0_0_1px_rgb(255_255_255/0.04)] transition-colors hover:bg-[#202024]"
+          activeOptions={{ exact: true, includeSearch: false }}
+          activeProps={{ className: "bg-raised shadow-raised" }}
+          inactiveProps={{ className: "hover:bg-hover/60" }}
+          className="flex h-8 items-center gap-2.5 rounded-lg px-2.5 transition-colors"
         >
-          <SquarePenIcon className="text-text size-4" strokeWidth={1.6} />
-          <span className="text-text flex-1 text-[13px] font-medium tracking-[-0.005em]">New thread</span>
+          <PencilSquareIcon className="text-text size-4" strokeWidth={1.6} />
+          <span className="text-text flex-1 text-ui font-medium tracking-[-0.005em]">New thread</span>
           <Kbd>⌘N</Kbd>
         </Link>
         <button
@@ -199,8 +227,8 @@ export const Sidebar = ({ onSearch }: { onSearch: () => void }) => {
           onClick={onSearch}
           className="hover:bg-hover/60 flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-left transition-colors"
         >
-          <SearchIcon className="text-text-2 size-4" strokeWidth={1.6} />
-          <span className="text-text-2 flex-1 text-[13px]">Search</span>
+          <MagnifyingGlassIcon className="text-text-2 size-4" strokeWidth={1.6} />
+          <span className="text-text-2 flex-1 text-ui">Search</span>
           <Kbd>⌘K</Kbd>
         </button>
         <button
@@ -209,7 +237,7 @@ export const Sidebar = ({ onSearch }: { onSearch: () => void }) => {
           className="hover:bg-hover/60 flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-left transition-colors"
         >
           <FolderPlusIcon className="text-text-2 size-4" strokeWidth={1.6} />
-          <span className="text-text-2 flex-1 text-[13px]">Add project</span>
+          <span className="text-text-2 flex-1 text-ui">Add project</span>
         </button>
       </nav>
 
@@ -227,6 +255,17 @@ export const Sidebar = ({ onSearch }: { onSearch: () => void }) => {
           <p className="text-text-3 px-2.5 text-xs leading-5">Add a project folder to start a thread in it.</p>
         )}
       </div>
+
+      <Link
+        to="/settings"
+        activeProps={{ className: "bg-raised shadow-raised text-text" }}
+        inactiveProps={{ className: "text-text-2 hover:bg-hover/60" }}
+        className="mt-2 flex h-8 shrink-0 items-center gap-2.5 rounded-lg px-2.5 transition-colors"
+      >
+        <Cog6ToothIcon className="size-4" strokeWidth={1.6} />
+        <span className="flex-1 text-ui">Settings</span>
+        <Kbd>⌘,</Kbd>
+      </Link>
     </aside>
   )
 }

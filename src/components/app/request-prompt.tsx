@@ -1,5 +1,5 @@
 import type * as acp from "@agentclientprotocol/sdk"
-import { CheckIcon, ListChecksIcon, MessageCircleQuestionIcon, ShieldIcon } from "lucide-react"
+import { CheckIcon, ClipboardDocumentListIcon, QuestionMarkCircleIcon, ShieldCheckIcon } from "@heroicons/react/24/outline"
 import { type ReactNode, useState } from "react"
 import type { PendingRequest, Session } from "@/domain/session"
 import { useRun, useWorkspace } from "@/lib/runtime"
@@ -16,7 +16,7 @@ const Frame = ({ icon, title, detail, children }: { icon: ReactNode; title: stri
     <div className="flex items-start gap-2.5">
       <span className="text-amber mt-0.5 shrink-0 [&_svg]:size-3.5">{icon}</span>
       <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-text text-[13px] font-medium">{title}</span>
+        <span className="text-text text-ui font-medium">{title}</span>
         {detail}
       </div>
     </div>
@@ -63,10 +63,10 @@ const Permission = ({ session, request }: { session: Session; request: Extract<P
   const options = [...request.options].sort((a, b) => permissionOrder[a.kind] - permissionOrder[b.kind])
   return (
     <Frame
-      icon={<ShieldIcon />}
+      icon={<ShieldCheckIcon />}
       title="Allow this action?"
       detail={
-        <span className="text-text-2 selectable truncate font-mono text-xs">
+        <span className="text-text-2 selectable truncate text-xs">
           {request.toolCall.title ?? "The agent wants to run a tool"}
         </span>
       }
@@ -104,11 +104,11 @@ const Question = ({ session, request }: { session: Session; request: Extract<Pen
     })
 
   return (
-    <Frame icon={<MessageCircleQuestionIcon />} title={request.title ?? "The agent has a question"}>
+    <Frame icon={<QuestionMarkCircleIcon />} title={request.title ?? "The agent has a question"}>
       <div className="flex max-h-72 flex-col gap-4 overflow-y-auto">
         {request.questions.map((question) => (
           <div key={question.id} className="flex flex-col gap-2">
-            <span className="text-text selectable text-[13px] leading-5">{question.prompt}</span>
+            <span className="text-text selectable text-ui leading-5">{question.prompt}</span>
             <div className="flex flex-wrap gap-1.5">
               {question.options.map((option) => {
                 const active = selected[question.id]?.includes(option.id) ?? false
@@ -171,11 +171,11 @@ const PlanApproval = ({
   const run = useRun()
   return (
     <Frame
-      icon={<ListChecksIcon />}
+      icon={<ClipboardDocumentListIcon />}
       title={request.name ? `Approve plan: ${request.name}` : "Approve this plan?"}
       detail={request.overview && <span className="text-text-2 selectable text-xs leading-5">{request.overview}</span>}
     >
-      <div className="bg-panel max-h-72 overflow-y-auto rounded-xl px-3.5 py-3 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.05)]">
+      <div className="bg-panel max-h-72 overflow-y-auto rounded-xl px-3.5 py-3 shadow-hairline">
         <Markdown text={request.plan} />
       </div>
       <Actions>

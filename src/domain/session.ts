@@ -99,6 +99,8 @@ export interface Session {
   readonly createdAt: number
   readonly updatedAt: number
   readonly turnStartedAt: number | null
+  /** How far into the background daemon's log for this thread's agent `items` go. */
+  readonly logSeq: number
 }
 
 export const untitled = "New thread"
@@ -130,6 +132,7 @@ export const makeSession = (fields: {
   createdAt: fields.now,
   updatedAt: fields.now,
   turnStartedAt: null,
+  logSeq: 0,
 })
 
 const newId = () => crypto.randomUUID()

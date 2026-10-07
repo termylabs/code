@@ -42,10 +42,12 @@ import {
   transcript,
   untitled,
 } from "@/domain/session"
-import { type AcpConnection, AcpClient, AcpError, type Prompt } from "./AcpClient"
-import { AgentHost } from "./AgentHost"
+import { type AcpConnection, AcpClient, AcpError, type Prompt, type TurnEnd } from "./AcpClient"
+import { AgentHost, type AgentProcess, type AgentSummary } from "./AgentHost"
+import { Daemon } from "./Daemon"
 import { Database, Project, type SearchHit, type ThreadSummary } from "./Database"
 import { Tauri } from "./Tauri"
+import { TerminalHost } from "./TerminalHost"
 
 /** Live output of a command an agent runs through the client (ACP terminal). */
 export interface TerminalOutput {
@@ -133,6 +135,15 @@ const appendTerminalText = (terminal: TerminalOutput, chunk: string): TerminalOu
   return { ...terminal, column, text: text.length > TERMINAL_TAIL_CHARS ? text.slice(-TERMINAL_TAIL_CHARS) : text }
 }
 
+export const BackgroundStatus = Schema.Struct({
+  pid: Schema.NullOr(Schema.Number),
+  agents: Schema.Number,
+  shells: Schema.Number,
+  /** Kept from an older build because work was running when this one started. */
+  stale: Schema.Boolean,
+})
+export type BackgroundStatus = typeof BackgroundStatus.Type
+
 export class WorkspaceError extends Schema.TaggedError<WorkspaceError>()("WorkspaceError", {
   message: Schema.String,
 }) {}
@@ -147,6 +158,8 @@ interface Live {
   todos: ReadonlyArray<Todo>
   /** True while `session/load` replays history we already have on disk. */
   replaying: boolean
+  /** The last daemon log entry the session has seen; saved with the thread. */
+  lastSeq: () => number
 }
 
 /** Permission, question and plan requests all share this cancelled shape. */
@@ -192,6 +205,12 @@ export class Workspace extends Context.Service<
     openTerminal(cwd: string, title: string): Effect.Effect<string>
     /** Follows the shell's own title, e.g. the running command. */
     setTerminalTitle(id: string, title: string): Effect.Effect<void>
+    /** Ends a background shell for good, e.g. one closed in a thread's panel. */
+    closeShell(key: string): Effect.Effect<void>
+    /** What the background daemon is running, and whether it's from an older build of the app. */
+    backgroundStatus(): Effect.Effect<BackgroundStatus, WorkspaceError>
+    /** Stops every background agent and shell, and starts a fresh daemon from this build. */
+    restartBackground(): Effect.Effect<void, WorkspaceError>
     readFile(path: string): Effect.Effect<string, WorkspaceError>
     gitBranch(cwd: string): Effect.Effect<string | null>
     /** Project files relative to `cwd`, for `@` mentions. */
@@ -207,6 +226,8 @@ export class Workspace extends Context.Service<
       const db = yield* Database
       const host = yield* AgentHost
       const acpClient = yield* AcpClient
+      const daemon = yield* Daemon
+      const shells = yield* TerminalHost
       const state = yield* SubscriptionRef.make<WorkspaceState>({
         loaded: false,
         projects: [],
@@ -241,6 +262,8 @@ export class Workspace extends Context.Service<
         const session = (yield* SubscriptionRef.get(state)).sessions[id]
         if (!session || !session.items.some((item) => item._tag === "User")) return
         const now = yield* Clock.currentTimeMillis
+        const handle = live.get(id)
+        const logSeq = handle ? handle.lastSeq() : session.logSeq
         const record = {
           id: session.id,
           projectId: session.projectId,
@@ -250,12 +273,18 @@ export class Workspace extends Context.Service<
           items: session.items,
           createdAt: session.createdAt,
           updatedAt: now,
+          logSeq,
         }
         yield* db.saveThread(record)
         yield* update((current) => ({
           ...current,
           threads: [record, ...current.threads.filter((thread) => thread.id !== id)],
+          sessions: current.sessions[id]
+            ? { ...current.sessions, [id]: { ...current.sessions[id], logSeq } }
+            : current.sessions,
         }))
+        // Saved, so the daemon can forget what led here.
+        if (handle && logSeq > 0) yield* host.ack(id, logSeq)
       }, Effect.catch((error) => Effect.logWarning("Couldn't save thread", error.message)))
 
       // ── agent connection ──────────────────────────────────────────────
@@ -367,6 +396,35 @@ export class Workspace extends Context.Service<
           }
         })
 
+      /** A prompt finished (maybe while no window watched): settle its steps, say why it stopped, time it, save. */
+      const endTurn = (id: string) => (end: TurnEnd) =>
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis
+          const notice = (text: string, tone: "info" | "error"): TimelineItem => ({
+            _tag: "Notice",
+            id: crypto.randomUUID(),
+            text,
+            tone,
+          })
+          yield* updateSession(id, (session) => {
+            const extra = end.error
+              ? [notice(end.error.message, "error")]
+              : end.stopReason === "refusal"
+                ? [notice("The agent declined this request.", "error")]
+                : end.stopReason === "max_tokens" || end.stopReason === "max_turn_requests"
+                  ? [notice("The agent stopped at its turn limit. Send a follow-up to continue.", "info")]
+                  : []
+            const items = [...settleTools(session.items), ...extra]
+            return {
+              ...session,
+              status: end.error && !session.connected ? "failed" : "ready",
+              turnStartedAt: null,
+              items: session.turnStartedAt === null ? items : timeTurn(items, now - session.turnStartedAt),
+            }
+          })
+          yield* persist(id)
+        })
+
       const handlers = (id: string) => ({
         // A replay rebuilds history we already have; session-level updates (commands, modes) still apply.
         onUpdate: (notification: acp.SessionNotification) =>
@@ -381,6 +439,7 @@ export class Workspace extends Context.Service<
           }),
         onExtension: onExtension(id),
         onExtensionNotification: onExtensionNotification(id),
+        onTurnEnd: endTurn(id),
       })
 
       /**
@@ -408,12 +467,96 @@ export class Workspace extends Context.Service<
           }
         }).pipe(Effect.ignore)
 
-      /** Spawns the agent, then resumes, replays or starts the ACP session. */
-      const establish = (id: string, handle: Live) =>
+      /** Marks the session failed when the agent process dies underneath it. */
+      const watchExit = (id: string, handle: Live, process: AgentProcess, name: string) =>
+        Deferred.await(process.exited).pipe(
+          Effect.flatMap((code) =>
+            updateSession(id, (current) => ({
+              ...current,
+              connected: false,
+              status: "failed",
+              turnStartedAt: null,
+              error: [`${name} exited${code === null ? "" : ` with code ${code}`}.`, process.stderrTail()]
+                .filter(Boolean)
+                .join("\n"),
+              items: settleTools(current.items),
+            })),
+          ),
+          Effect.andThen(persist(id)),
+          Effect.ensuring(Effect.sync(() => live.get(id) === handle && live.delete(id))),
+          Effect.forkIn(handle.scope),
+        )
+
+      /**
+       * Attaches to an agent the daemon kept running for this thread, picking the session up
+       * where it is: its log since the last save, any prompt waiting for an answer, a turn in flight.
+       */
+      const reattach = (id: string, handle: Live, running: AgentSummary) =>
         Effect.gen(function* () {
           const session = yield* getSession(id)
           const spec = agents[session.agentId]
-          const process = yield* host.spawn(spec, session.cwd)
+          const process = yield* host.attach(id, session.logSeq)
+          handle.lastSeq = process.lastSeq
+          const connection = yield* acpClient.connect(process, handlers(id))
+          yield* watchExit(id, handle, process, spec.name)
+          const resumed = (running.session ?? {}) as Partial<acp.NewSessionResponse>
+          yield* updateSession(id, (current) => ({
+            ...current,
+            acpSessionId: running.sessionId ?? current.acpSessionId,
+            connected: true,
+            status: running.turn || current.status === "working" ? "working" : "ready",
+            turnStartedAt: running.turn ? running.turn.startedAt : current.turnStartedAt,
+            error: null,
+            authMethods: connection.info.authMethods ?? [],
+            supportsImages: Boolean(connection.info.agentCapabilities?.promptCapabilities?.image),
+            configOptions: resumed.configOptions ?? current.configOptions,
+            modes: resumed.modes ?? current.modes,
+          }))
+          return connection
+        })
+
+      /** A logged notification from the daemon, applied the way the live connection would. */
+      const applyLogged = (id: string, message: unknown) => {
+        const { method, params } = message as { method?: string; params?: Record<string, unknown> }
+        const on = handlers(id)
+        if (!method || !params) return Effect.void
+        if (method === "session/update") return on.onUpdate(params as unknown as acp.SessionNotification)
+        if (method === "_termy/turn_end") {
+          return on.onTurnEnd({
+            stopReason: (params.stopReason as acp.StopReason | null | undefined) ?? null,
+            error: (params.error as TurnEnd["error"] | undefined) ?? null,
+          })
+        }
+        return on.onExtensionNotification(method, params)
+      }
+
+      /**
+       * An agent that stopped while no window watched (or whose daemon restarted) may have
+       * reported things the thread hasn't saved yet: apply them, save, then let the agent go.
+       */
+      const collect = (id: string, handle: Live) =>
+        Effect.gen(function* () {
+          const { messages, lastSeq } = yield* host.backlog(id, (yield* getSession(id)).logSeq)
+          for (const message of messages) yield* applyLogged(id, message)
+          handle.lastSeq = () => lastSeq
+          yield* persist(id)
+          yield* host.kill(id)
+        })
+
+      /** Spawns the agent, then resumes, replays or starts the ACP session. */
+      const establish = (id: string, handle: Live) =>
+        Effect.gen(function* () {
+          const running = (yield* host.list()).find((agent) => agent.key === id)
+          if (running?.alive) return yield* reattach(id, handle, running)
+          if (running) yield* collect(id, handle)
+
+          const session = yield* getSession(id)
+          const spec = agents[session.agentId]
+          // A new process starts a new log.
+          yield* updateSession(id, (current) => ({ ...current, logSeq: 0 }))
+          handle.lastSeq = () => 0
+          const process = yield* host.spawn(id, spec, session.cwd)
+          handle.lastSeq = process.lastSeq
           const connection = yield* acpClient.connect(process, handlers(id))
 
           let resumed: acp.ResumeSessionResponse | acp.NewSessionResponse | acp.ForkSessionResponse
@@ -450,22 +593,7 @@ export class Workspace extends Context.Service<
             resumed = created
           }
 
-          // Watch for the agent dying underneath us.
-          yield* Deferred.await(process.exited).pipe(
-            Effect.flatMap((code) =>
-              updateSession(id, (current) => ({
-                ...current,
-                connected: false,
-                status: "failed",
-                error: [`${spec.name} exited${code === null ? "" : ` with code ${code}`}.`, process.stderrTail()]
-                  .filter(Boolean)
-                  .join("\n"),
-                items: settleTools(current.items),
-              })),
-            ),
-            Effect.ensuring(Effect.sync(() => live.delete(id))),
-            Effect.forkIn(handle.scope),
-          )
+          yield* watchExit(id, handle, process, spec.name)
 
           yield* updateSession(id, (current) => ({
             ...current,
@@ -512,6 +640,7 @@ export class Workspace extends Context.Service<
           request: null,
           todos: [],
           replaying: false,
+          lastSeq: () => 0,
         }
         live.set(id, handle)
         yield* updateSession(id, (session) => ({ ...session, status: "starting", error: null }))
@@ -525,12 +654,18 @@ export class Workspace extends Context.Service<
         return yield* exit
       })
 
-      const disconnect = Effect.fnUntraced(function* (id: string) {
+      /**
+       * Lets go of the thread's agent. `stop` ends it (and any prompt it's waiting on); without it
+       * the agent keeps running in the daemon, e.g. when the window closes.
+       */
+      const disconnect = Effect.fnUntraced(function* (id: string, stop: boolean) {
         const handle = live.get(id)
-        if (!handle) return
-        live.delete(id)
-        if (handle.request) yield* Deferred.succeed(handle.request, cancelled)
-        yield* Scope.close(handle.scope, Exit.void)
+        if (handle) {
+          live.delete(id)
+          if (stop && handle.request) yield* Deferred.succeed(handle.request, cancelled)
+          yield* Scope.close(handle.scope, Exit.void)
+        }
+        if (stop) yield* host.kill(id)
       })
 
       // ── projects ──────────────────────────────────────────────────────
@@ -562,7 +697,7 @@ export class Workspace extends Context.Service<
         function* (id: string) {
           const current = yield* SubscriptionRef.get(state)
           for (const session of Object.values(current.sessions)) {
-            if (session.projectId === id) yield* disconnect(session.id)
+            if (session.projectId === id) yield* disconnect(session.id, true)
           }
           yield* db.deleteProject(id)
           yield* update((current) => ({
@@ -594,15 +729,15 @@ export class Workspace extends Context.Service<
       })
 
       const discard = Effect.fn("Workspace.discard")(function* (id: string) {
-        yield* disconnect(id)
+        yield* disconnect(id, true)
         yield* update((current) => {
           const { [id]: _removed, ...sessions } = current.sessions
           return { ...current, sessions }
         })
       })
 
-      const open = Effect.fn("Workspace.open")(
-        function* (id: string) {
+      /** Brings a saved thread into the window (without a tab) and connects its agent. */
+      const load = Effect.fnUntraced(function* (id: string) {
           const current = yield* SubscriptionRef.get(state)
           if (!current.sessions[id]) {
             const record = yield* db.getThread(id)
@@ -622,48 +757,32 @@ export class Workspace extends Context.Service<
               items: settleTools(record.items),
               status: "ready",
               updatedAt: record.updatedAt,
+              logSeq: record.logSeq,
             }
             yield* update((s) => ({ ...s, sessions: { ...s.sessions, [id]: session } }))
           }
-          yield* setTabs((tabs) => (tabs.some((tab) => tab.id === id) ? tabs : [...tabs, { _tag: "Thread", id }]))
           if (!live.has(id)) yield* ensureConnected(id).pipe(Effect.ignore, Effect.forkDetach)
+      })
+
+      const open = Effect.fn("Workspace.open")(
+        function* (id: string) {
+          yield* load(id)
+          yield* setTabs((tabs) => (tabs.some((tab) => tab.id === id) ? tabs : [...tabs, { _tag: "Thread", id }]))
         },
         Effect.mapError(toWorkspaceError),
       )
 
-      const runTurn = (id: string, connection: AcpConnection, acpSessionId: string, prompt: Prompt, startedAt: number) =>
+      /**
+       * Sends the prompt. How it ends arrives as the daemon's `_termy/turn_end` (see `endTurn`), in
+       * order with the agent's updates and even if the window closed meanwhile. Only a prompt the
+       * daemon couldn't deliver at all ends here.
+       */
+      const runTurn = (id: string, connection: AcpConnection, acpSessionId: string, prompt: Prompt) =>
         connection.prompt(acpSessionId, prompt).pipe(
-          Effect.matchEffect({
-            onSuccess: (response) =>
-              updateSession(id, (session) => ({
-                ...session,
-                status: "ready",
-                turnStartedAt: null,
-                items: [
-                  ...settleTools(session.items),
-                  ...(response.stopReason === "refusal"
-                    ? [{ _tag: "Notice", id: crypto.randomUUID(), text: "The agent declined this request.", tone: "error" } as TimelineItem]
-                    : response.stopReason === "max_tokens" || response.stopReason === "max_turn_requests"
-                      ? [{ _tag: "Notice", id: crypto.randomUUID(), text: "The agent stopped at its turn limit. Send a follow-up to continue.", tone: "info" } as TimelineItem]
-                      : []),
-                ],
-              })),
-            onFailure: (error) =>
-              updateSession(id, (session) => ({
-                ...session,
-                status: session.connected ? "ready" : "failed",
-                turnStartedAt: null,
-                items: [
-                  ...settleTools(session.items),
-                  { _tag: "Notice", id: crypto.randomUUID(), text: error.message, tone: "error" },
-                ],
-              })),
-          }),
-          Effect.andThen(Clock.currentTimeMillis),
-          Effect.flatMap((now) =>
-            updateSession(id, (session) => ({ ...session, items: timeTurn(session.items, now - startedAt) })),
+          Effect.asVoid,
+          Effect.catch((error) =>
+            error.code === -1 ? endTurn(id)({ stopReason: null, error: { message: error.message } }) : Effect.void,
           ),
-          Effect.andThen(persist(id)),
         )
 
       const send = Effect.fn("Workspace.send")(function* (
@@ -712,7 +831,7 @@ export class Workspace extends Context.Service<
         const context =
           fork?.handoff === "transcript" ? transcript(items, fork, agents[fork.fromAgentId].name) : undefined
         yield* Effect.forkIn(
-          runTurn(id, connection, session.acpSessionId, { text: trimmed, images, mentions, context }, now),
+          runTurn(id, connection, session.acpSessionId, { text: trimmed, images, mentions, context }),
           handle.scope,
         )
       })
@@ -727,7 +846,7 @@ export class Workspace extends Context.Service<
       })
 
       const retry = Effect.fn("Workspace.retry")(function* (id: string) {
-        yield* disconnect(id)
+        yield* disconnect(id, true)
         yield* ensureConnected(id).pipe(Effect.ignore, Effect.forkDetach)
       })
 
@@ -798,6 +917,7 @@ export class Workspace extends Context.Service<
       const deleteThread = Effect.fn("Workspace.deleteThread")(
         function* (id: string) {
           yield* discard(id)
+          yield* closeThreadShells(id)
           yield* db.deleteThread(id)
           yield* update((current) => ({
             ...current,
@@ -854,10 +974,26 @@ export class Workspace extends Context.Service<
         }).pipe(Effect.flatMap(writeTabs))
 
       const closeTab = Effect.fn("Workspace.closeTab")(function* (id: string) {
-        yield* setTabs((tabs) => tabs.filter((tab) => tab.id !== id))
+        const tab = (yield* SubscriptionRef.get(state)).tabs.find((candidate) => candidate.id === id)
+        yield* setTabs((tabs) => tabs.filter((candidate) => candidate.id !== id))
+        // A terminal tab's shell runs in the daemon until its tab closes.
+        if (tab?._tag === "Terminal") yield* shells.close(id)
         const session = (yield* SubscriptionRef.get(state)).sessions[id]
         if (session && session.status !== "working") yield* discard(id)
       })
+
+      /** Ends the shells in a thread's side panel, which are keyed `<thread id>:panel:<n>`. */
+      const closeThreadShells = (threadId: string) =>
+        daemon.request("shell.list", null, Schema.Array(Schema.Struct({ key: Schema.String }))).pipe(
+          Effect.flatMap((list) =>
+            Effect.forEach(
+              list.filter((shell) => shell.key.startsWith(`${threadId}:panel:`)),
+              (shell) => shells.close(shell.key),
+              { discard: true },
+            ),
+          ),
+          Effect.ignore,
+        )
 
       const openTerminal = Effect.fn("Workspace.openTerminal")(function* (cwd: string, title: string) {
         const id = crypto.randomUUID()
@@ -882,18 +1018,49 @@ export class Workspace extends Context.Service<
           })),
         )
 
-      yield* tauri.listen<{ id: string; text: string }>("acp-terminal://output", ({ id, text }) =>
-        updateTerminal(id, (terminal) => appendTerminalText(terminal, text)),
-      )
-      yield* tauri.listen<{ id: string; exitStatus: { exitCode: number | null; signal: string | null } }>(
-        "acp-terminal://exit",
-        ({ id, exitStatus }) =>
-          updateTerminal(id, (terminal) => ({
-            ...terminal,
-            exited: true,
-            exitCode: exitStatus.exitCode,
-            signal: exitStatus.signal,
-          })),
+      const ExitStatus = Schema.Struct({ exitCode: Schema.NullOr(Schema.Number), signal: Schema.NullOr(Schema.String) })
+      const TerminalOutputEvent = Schema.Struct({ id: Schema.String, text: Schema.String })
+      const TerminalExitEvent = Schema.Struct({ id: Schema.String, exitStatus: ExitStatus })
+      const TerminalSnapshot = Schema.Struct({ id: Schema.String, text: Schema.String, exitStatus: Schema.NullOr(ExitStatus) })
+      const decodeTerminalOutput = Schema.decodeUnknownOption(TerminalOutputEvent)
+      const decodeTerminalExit = Schema.decodeUnknownOption(TerminalExitEvent)
+
+      yield* daemon.on("acpTerminal.output", (data) => {
+        const event = decodeTerminalOutput(data)
+        if (event._tag === "Some") {
+          updateTerminal(event.value.id, (terminal) => appendTerminalText(terminal, event.value.text))
+        }
+      })
+      yield* daemon.on("acpTerminal.exit", (data) => {
+        const event = decodeTerminalExit(data)
+        if (event._tag === "Some") {
+          const { exitCode, signal } = event.value.exitStatus
+          updateTerminal(event.value.id, (terminal) => ({ ...terminal, exited: true, exitCode, signal }))
+        }
+      })
+
+      // The daemon stopped (crashed, or restarted from Settings): every agent it ran is gone.
+      yield* daemon.onDisconnect(() =>
+        Effect.runFork(
+          Effect.forEach(
+            [...live.keys()],
+            (id) =>
+              disconnect(id, false).pipe(
+                Effect.andThen(
+                  updateSession(id, (session) => ({
+                    ...session,
+                    connected: false,
+                    status: "failed",
+                    turnStartedAt: null,
+                    request: null,
+                    error: "Termy Code's background service stopped. Retry to start the agent again.",
+                    items: settleTools(session.items),
+                  })),
+                ),
+              ),
+            { discard: true },
+          ),
+        ),
       )
 
       // ── boot ──────────────────────────────────────────────────────────
@@ -908,9 +1075,30 @@ export class Workspace extends Context.Service<
             return []
           }
         })
-        // Terminal tabs come back as fresh shells in the same folder.
+        // Terminal tabs reattach to their shells in the daemon (or start fresh ones in the same folder).
         const tabs = saved.filter((tab) => tab._tag === "Terminal" || threads.some((thread) => thread.id === tab.id))
         yield* update((current) => ({ ...current, loaded: true, projects, threads, tabs }))
+
+        // Commands agents were running when the window closed, for their live steps.
+        const running = yield* daemon
+          .request("terminals.snapshot", null, Schema.Array(TerminalSnapshot))
+          .pipe(Effect.orElseSucceed(() => []))
+        for (const terminal of running) {
+          updateTerminal(terminal.id, () => ({
+            ...appendTerminalText(emptyTerminal, terminal.text),
+            exited: terminal.exitStatus !== null,
+            exitCode: terminal.exitStatus?.exitCode ?? null,
+            signal: terminal.exitStatus?.signal ?? null,
+          }))
+        }
+
+        // Agents that kept working while no window was open come back into their threads.
+        // The daemon's agents for threads that don't exist (unsent drafts, deleted threads) go.
+        for (const agent of yield* host.list()) {
+          const saved = threads.some((thread) => thread.id === agent.key)
+          if (!saved) yield* host.kill(agent.key)
+          else if (agent.alive) yield* load(agent.key).pipe(Effect.ignore)
+        }
       }).pipe(
         Effect.catchCause((cause) =>
           Effect.logError("Couldn't load workspace", Cause.pretty(cause)).pipe(
@@ -919,8 +1107,9 @@ export class Workspace extends Context.Service<
         ),
       )
 
+      // Closing the window detaches: agents keep working in the daemon until the next one attaches.
       yield* Effect.addFinalizer(() =>
-        Effect.forEach([...live.keys()], disconnect, { discard: true }),
+        Effect.forEach([...live.keys()], (id) => disconnect(id, false), { discard: true }),
       )
 
       return Workspace.of({
@@ -941,6 +1130,13 @@ export class Workspace extends Context.Service<
         closeTab,
         openTerminal,
         setTerminalTitle,
+        closeShell: (key) => shells.close(key),
+        backgroundStatus: () =>
+          tauri.invoke<unknown>("daemon_info").pipe(
+            Effect.flatMap(Schema.decodeUnknownEffect(BackgroundStatus)),
+            Effect.mapError(toWorkspaceError),
+          ),
+        restartBackground: () => tauri.invoke<void>("daemon_restart").pipe(Effect.mapError(toWorkspaceError)),
         readFile: (path) =>
           tauri
             .invoke<string>("fs_read_text", { path, line: null, limit: null })
@@ -967,5 +1163,7 @@ export class Workspace extends Context.Service<
             .pipe(Effect.mapError(toWorkspaceError)),
       })
     }),
-  ).pipe(Layer.provide([Database.layer, AgentHost.layer, AcpClient.layer, Tauri.layer]))
+  ).pipe(
+    Layer.provide([Database.layer, AgentHost.layer, AcpClient.layer, Daemon.layer, TerminalHost.layer, Tauri.layer]),
+  )
 }

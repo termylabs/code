@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { PanelRightIcon } from "lucide-react"
+import { ViewColumnsIcon } from "@heroicons/react/24/outline"
 import { useEffect, useMemo, useState } from "react"
 import { Composer } from "@/components/app/composer"
 import { ForkMenu } from "@/components/app/fork-menu"
@@ -30,7 +30,7 @@ const storedPanelOpen = () => {
 }
 
 const PanelTabs = ({ value, onChange }: { value: Panel; onChange: (tab: Panel) => void }) => (
-  <div className="bg-panel flex items-center gap-0.5 rounded-[9px] p-0.5 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.04)]">
+  <div className="bg-panel flex items-center gap-0.5 rounded-[9px] p-0.5 shadow-hairline">
     {(["changes", "files", "terminal"] as const).map((tab) => (
       <button
         key={tab}
@@ -40,7 +40,7 @@ const PanelTabs = ({ value, onChange }: { value: Panel; onChange: (tab: Panel) =
         className={cn(
           "h-[26px] rounded-[7px] px-3 text-xs capitalize transition-colors",
           value === tab
-            ? "bg-hover text-text font-medium shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_1px_2px_rgb(0_0_0/0.4)]"
+            ? "bg-hover text-text font-medium shadow-segment"
             : "text-text-2 hover:text-text",
         )}
       >
@@ -116,7 +116,7 @@ const ThreadView = () => {
               reviewOpen ? "bg-raised text-text" : "text-text-2 hover:bg-raised/60",
             )}
           >
-            <PanelRightIcon className="size-3.5" />
+            <ViewColumnsIcon className="size-3.5" />
             {sum.files > 0 ? <Diffstat additions={sum.additions} deletions={sum.deletions} /> : <span className="text-xs">Changes</span>}
           </button>
         </ThreadHeader>
@@ -150,6 +150,7 @@ const ThreadView = () => {
             <div className={cn("min-h-0 flex-1 flex-col", tab === "terminal" ? "flex" : "hidden")}>
               <PanelTerminals
                 key={session.id}
+                threadId={session.id}
                 cwd={session.cwd}
                 name={session.cwd.split("/").filter(Boolean).at(-1) ?? session.cwd}
                 active={tab === "terminal"}

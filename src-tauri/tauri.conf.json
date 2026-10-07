@@ -18,15 +18,21 @@
         "height": 900,
         "minWidth": 960,
         "minHeight": 600,
-        "backgroundColor": "#131315",
+        "backgroundColor": "#00000000",
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 18, "y": 22 }
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 22
+        },
+        "transparent": true,
+        "theme": "Dark"
       }
     ],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,

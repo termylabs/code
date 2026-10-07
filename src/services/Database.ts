@@ -29,10 +29,13 @@ export class SearchHit extends Schema.Class<SearchHit>("SearchHit")({
 const ThreadRow = Schema.Struct({
   ...ThreadSummary.fields,
   items: Schema.Array(Schema.Unknown),
+  logSeq: Schema.Number,
 })
 
 export interface ThreadRecord extends ThreadSummary {
   readonly items: ReadonlyArray<TimelineItem>
+  /** How far into the daemon's log for this thread's agent `items` go. */
+  readonly logSeq: number
 }
 
 export class DatabaseError extends Schema.TaggedError<DatabaseError>()("DatabaseError", {
@@ -90,6 +93,7 @@ export class Database extends Context.Service<
               items: thread.items,
               createdAt: thread.createdAt,
               updatedAt: thread.updatedAt,
+              logSeq: thread.logSeq,
             },
           }),
         deleteThread: (id) => execute("db_thread_delete", { id }),
