@@ -44,5 +44,14 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYwQzM2MjBGRUQ1MUI0NDcKUldSSHRGSHREMkxEOENtandjQVYwenM1Vi9RbkFCTi8zMmxIbllvcnBMVHgzQjBrVGhGRVNDRlYK",
+      "endpoints": [
+        "https://github.com/termylabs/code/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true
+    }
   }
 }

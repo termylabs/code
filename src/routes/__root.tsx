@@ -4,8 +4,10 @@ import { CommandPalette } from "@/components/app/command-palette"
 import { Sidebar } from "@/components/app/sidebar"
 import { TabStrip } from "@/components/app/tab-strip"
 import { TerminalTabs } from "@/components/app/terminal-tabs"
+import { useAutomaticUpdates } from "@/lib/updates"
 
 const RootLayout = () => {
+  useAutomaticUpdates()
   const [searching, setSearching] = useState(false)
   const navigate = useNavigate()
 

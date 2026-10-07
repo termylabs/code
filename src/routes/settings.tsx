@@ -24,6 +24,8 @@ import {
 import { useRun, useWorkspace } from "@/lib/runtime"
 import { cn } from "@/lib/utils"
 import type { BackgroundStatus } from "@/services/Workspace"
+import { updates, useUpdateState } from "@/lib/updates"
+import { version } from "../../package.json"
 
 const Group = ({ title, children }: { title: string; children: ReactNode }) => (
   <section className="flex flex-col gap-2">
@@ -206,6 +208,35 @@ const FontPicker = ({
 }
 
 const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`
+
+const Updates = () => {
+  const state = useUpdateState()
+  const ready = state.phase === "ready" || state.phase === "restart"
+  const busy = ["disabled", "checking", "downloading", "installing"].includes(state.phase)
+  const detail = state.message ?? (
+    state.phase === "disabled" ? "Automatic updates are available in installed macOS release builds."
+      : state.phase === "checking" ? "Checking for updates…"
+      : state.phase === "downloading" ? `Downloading ${state.version}${state.progress === undefined ? "…" : ` · ${state.progress}%`}`
+      : state.phase === "installing" ? "Installing and restarting…"
+      : ready ? `${state.version} is ready. Restart when you’re ready to continue.`
+      : state.checkedAt ? "You’re up to date. Updates are checked and downloaded automatically."
+      : "Updates are checked and downloaded automatically. You choose when to restart."
+  )
+  return (
+    <Group title="Updates">
+      <Row label={`Termy Code ${version}`} detail={detail}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => { void (ready ? updates.restart() : updates.check()) }}
+          className="text-text-2 hover:text-text hover:bg-white/6 h-7 rounded-lg px-3 text-xs transition-colors disabled:opacity-40"
+        >
+          {ready ? "Restart to update" : state.phase === "error" ? "Try again" : "Check for updates"}
+        </button>
+      </Row>
+    </Group>
+  )
+}
 
 /** The daemon that keeps agents and shells running after the window closes. */
 const Background = () => {
@@ -480,6 +511,7 @@ const SettingsView = () => {
             </Row>
           </Group>
 
+          <Updates />
           <Background />
 
           <Group title="Behavior">

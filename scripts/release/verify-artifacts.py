@@ -137,11 +137,15 @@ def main():
         path = directory / name
         assert hashlib.sha256(path.read_bytes()).hexdigest() == checksum, f'Checksum mismatch: {name}'
         files[path.suffix] = path
-    assert set(files) == {'.zip', '.dmg'}, 'Expected a DMG and a ZIP'
+    assert set(files) == {'.zip', '.dmg', '.gz', '.sig'}, 'Expected DMG, ZIP and signed updater archive'
     with tempfile.TemporaryDirectory(prefix='tc-verify-', dir='/tmp') as scratch:
         extracted = Path(scratch) / 'zip'
         run('ditto', '-x', '-k', str(files['.zip']), str(extracted))
         verify_app(extracted / 'Termy Code.app', arch, team)
+        updater = Path(scratch) / 'updater'
+        updater.mkdir()
+        run('tar', '-xzf', str(files['.gz']), '-C', str(updater))
+        verify_app(updater / 'Termy Code.app', arch, team)
         dmg = str(files['.dmg'])
         run('codesign', '--verify', '--strict', '--verbose=2', dmg)
         run('xcrun', 'stapler', 'validate', dmg)
@@ -153,7 +157,7 @@ def main():
             verify_app(mount / 'Termy Code.app', arch, team)
         finally:
             run('hdiutil', 'detach', str(mount))
-    print(f'{arch}: ZIP and DMG checksums, signatures, tickets and Gatekeeper checks passed')
+    print(f'{arch}: ZIP, DMG and updater checksums, signatures, tickets and Gatekeeper checks passed')
 
 
 if __name__ == '__main__':

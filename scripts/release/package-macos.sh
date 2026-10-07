@@ -2,6 +2,7 @@
 set -euo pipefail
 target=${1:?Provide a Rust target}
 arch=${2:?Provide arm64 or x86_64}
+: "${TAURI_SIGNING_PRIVATE_KEY:?Missing updater signing key}"
 case "$target:$arch" in aarch64-apple-darwin:arm64|x86_64-apple-darwin:x86_64) ;; *) exit 1 ;; esac
 app="src-tauri/target/$target/release/bundle/macos/Termy Code.app"
 [[ -d "$app" ]] || { echo "Missing $app"; exit 1; }
@@ -44,4 +45,10 @@ xcrun stapler validate "release-artifacts/$stem.dmg"
 spctl --assess --type open --context context:primary-signature --verbose=2 "release-artifacts/$stem.dmg"
 # Only archive the final stapled app; ZIP itself cannot carry a stapled ticket.
 ditto -c -k --keepParent "$app" "release-artifacts/$stem.zip"
-(cd release-artifacts && shasum -a 256 "$stem.dmg" "$stem.zip" > "$stem.sha256")
+# The updater must receive these exact signed and stapled bytes. Tauri's build-time
+# updater archive would be generated before our Developer ID signing pass.
+COPYFILE_DISABLE=1 tar -czf "release-artifacts/$stem.app.tar.gz" -C "$(dirname "$app")" 'Termy Code.app'
+bun tauri signer sign --app-version "$APP_VERSION" "release-artifacts/$stem.app.tar.gz"
+cargo run --locked --manifest-path src-tauri/Cargo.toml --target "$target" --example verify_update -- \
+  "release-artifacts/$stem.app.tar.gz" "$APP_VERSION"
+(cd release-artifacts && shasum -a 256 "$stem.dmg" "$stem.zip" "$stem.app.tar.gz" "$stem.app.tar.gz.sig" > "$stem.sha256")
